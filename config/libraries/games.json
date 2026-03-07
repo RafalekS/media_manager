@@ -6,28 +6,15 @@
   "destination_base": "Y:\\Gry\\",
   "data_folder": "data/games",
   "primary_provider": "igdb",
-<<<<<<< Updated upstream
   "supplement_providers": ["rawg", "giantbomb"],
-=======
-  "supplement_providers": [
-    "rawg"
-  ],
->>>>>>> Stashed changes
   "genre_file": "config/libraries/games_genres.json",
   "html_filename": "games_database_dynamic.html",
   "items_per_page": 50,
   "bat_output_path": "",
   "api": {
-<<<<<<< Updated upstream
-    "client_id": "",
-    "client_secret": "",
-    "api_key": "",
-    "giantbomb_api_key": ""
-=======
-    "igdb_rate_limit": 0.3,
     "client_id": "pnhx9s4mv07uhd64hvh2kgvn9urahk",
     "client_secret": "gpp4r59gvp28x6dpz4o10a4zp4lma9",
-    "api_key": ""
->>>>>>> Stashed changes
+    "api_key": "",
+    "giantbomb_api_key": ""
   }
 }
