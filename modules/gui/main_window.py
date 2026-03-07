@@ -283,6 +283,13 @@ class MainWindow(QMainWindow):
         mod = importlib.import_module(module_path)
         self._plugin = getattr(mod, class_name)()
 
+        # Sync combo to the loaded library (blocked so it doesn't re-trigger)
+        self._lib_combo.blockSignals(True)
+        idx = self._lib_combo.findData(media_type)
+        if idx >= 0:
+            self._lib_combo.setCurrentIndex(idx)
+        self._lib_combo.blockSignals(False)
+
         # Replace browser page
         self._rebuild_browser_page()
         self._refresh_dashboard()
