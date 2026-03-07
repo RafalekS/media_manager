@@ -1,7 +1,7 @@
 """
 Main application window for Media Manager.
 Sidebar navigation + library switcher (QComboBox).
-Pages: Dashboard | Browser | Process | Log
+Pages: Dashboard | Library | Process | Settings | Log
 """
 
 import os
@@ -12,7 +12,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QListWidget, QListWidgetItem, QStackedWidget,
     QPushButton, QComboBox, QGroupBox, QGridLayout, QFrame,
     QStatusBar, QScrollArea,
@@ -21,8 +21,12 @@ from PyQt6.QtWidgets import (
 from modules.gui.log_widget import LogWidget
 from modules.gui.theme_manager import THEME_NAMES, build_stylesheet
 from modules.gui.ui_state import UIState
+from modules.gui.settings_page import SettingsPage
 
 APP_VERSION = '1.0.0'
+
+# Nav row → stack index
+_NAV_MAP = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}
 
 
 class MainWindow(QMainWindow):
@@ -30,12 +34,11 @@ class MainWindow(QMainWindow):
     def __init__(self, global_config):
         super().__init__()
         self._global_config = global_config
-        self._ui_state = UIState(str(global_config.ui_state_path()))
-        self._plugin   = None
+        self._ui_state   = UIState(str(global_config.ui_state_path()))
+        self._plugin     = None
         self._lib_config = None
-        self._browser_page = None   # lazy-created per library
-        self._worker   = None
-        self._log_widget = None
+        self._browser_page = None
+        self._worker     = None
 
         self.setWindowTitle('Media Manager')
         self._apply_theme(global_config.theme)
@@ -43,8 +46,6 @@ class MainWindow(QMainWindow):
         self._ui_state.restore_window(self)
         self._load_library(global_config.active_library)
 
-    # ──────────────────────────────────────────────────────────────────
-    # Theme
     # ──────────────────────────────────────────────────────────────────
     def _apply_theme(self, name: str):
         self.setStyleSheet(build_stylesheet(name))
@@ -59,91 +60,84 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Sidebar
+        # ── Sidebar ───────────────────────────────────────────────────
         sidebar = QWidget()
         sidebar.setObjectName('sidebar')
         sidebar.setFixedWidth(210)
-        sb_layout = QVBoxLayout(sidebar)
-        sb_layout.setContentsMargins(0, 0, 0, 0)
-        sb_layout.setSpacing(0)
+        sb = QVBoxLayout(sidebar)
+        sb.setContentsMargins(0, 0, 0, 0)
+        sb.setSpacing(0)
 
-        app_title = QLabel('Media Manager')
-        app_title.setObjectName('app_title')
-        sb_layout.addWidget(app_title)
+        lbl_title = QLabel('Media Manager')
+        lbl_title.setObjectName('app_title')
+        sb.addWidget(lbl_title)
 
-        sub = QLabel('Multi-library tool')
-        sub.setObjectName('app_subtitle')
-        sb_layout.addWidget(sub)
+        lbl_sub = QLabel('Multi-library tool')
+        lbl_sub.setObjectName('app_subtitle')
+        sb.addWidget(lbl_sub)
 
-        # Library switcher
-        lib_lbl = QLabel('Library')
-        lib_lbl.setStyleSheet("padding: 8px 14px 2px 14px; font-size:8pt;")
-        sb_layout.addWidget(lib_lbl)
+        lbl_lib = QLabel('Library')
+        lbl_lib.setStyleSheet("padding: 8px 14px 2px 14px; font-size:8pt;")
+        sb.addWidget(lbl_lib)
 
         self._lib_combo = QComboBox()
-        self._lib_combo.setStyleSheet(
-            "combobox-popup: 0; margin: 0 10px; padding: 4px 8px;"
-        )
+        self._lib_combo.setStyleSheet("combobox-popup: 0; margin: 0 10px; padding: 4px 8px;")
         self._lib_combo.view().setStyleSheet("max-height: 300px;")
         self._populate_lib_combo()
         self._lib_combo.currentTextChanged.connect(self._on_lib_changed)
-        sb_layout.addWidget(self._lib_combo)
+        sb.addWidget(self._lib_combo)
 
-        sep1 = QFrame()
-        sep1.setFrameShape(QFrame.Shape.HLine)
-        sep1.setStyleSheet("color: #333;")
-        sb_layout.addWidget(sep1)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #333;")
+        sb.addWidget(sep)
 
-        # Nav list
         self._nav = QListWidget()
         self._nav.setObjectName('nav_list')
-        for label in ['Dashboard', 'Library', 'Process', 'Log']:
-            item = QListWidgetItem(label)
-            self._nav.addItem(item)
+        for label in ['Dashboard', 'Library', 'Process', 'Settings', 'Log']:
+            self._nav.addItem(QListWidgetItem(label))
         self._nav.setCurrentRow(0)
         self._nav.currentRowChanged.connect(self._on_nav_changed)
-        sb_layout.addWidget(self._nav, 1)
+        sb.addWidget(self._nav, 1)
 
-        # Theme switcher
-        theme_lbl = QLabel('Theme')
-        theme_lbl.setStyleSheet("padding: 8px 14px 2px 14px; font-size:8pt;")
-        sb_layout.addWidget(theme_lbl)
+        lbl_theme = QLabel('Theme')
+        lbl_theme.setStyleSheet("padding: 8px 14px 2px 14px; font-size:8pt;")
+        sb.addWidget(lbl_theme)
 
         self._theme_combo = QComboBox()
         self._theme_combo.setStyleSheet("combobox-popup: 0; margin: 0 10px; padding: 4px 8px;")
         self._theme_combo.view().setStyleSheet("max-height: 300px;")
         self._theme_combo.addItems(THEME_NAMES)
-        saved_theme = self._global_config.theme
-        idx = self._theme_combo.findText(saved_theme)
+        idx = self._theme_combo.findText(self._global_config.theme)
         if idx >= 0:
             self._theme_combo.setCurrentIndex(idx)
         self._theme_combo.currentTextChanged.connect(self._on_theme_changed)
-        sb_layout.addWidget(self._theme_combo)
+        sb.addWidget(self._theme_combo)
 
-        ver = QLabel(f'v{APP_VERSION}')
-        ver.setObjectName('ver_label')
-        sb_layout.addWidget(ver)
+        lbl_ver = QLabel(f'v{APP_VERSION}')
+        lbl_ver.setObjectName('ver_label')
+        sb.addWidget(lbl_ver)
 
         root.addWidget(sidebar)
 
-        # Content area (stacked)
+        # ── Content stack ─────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setObjectName('content_widget')
 
-        self._dash_page    = self._build_dashboard_page()
-        self._process_page = self._build_process_page()
-        self._log_page     = self._build_log_page()
-        # Browser page is created dynamically per library in _load_library()
-        self._browser_placeholder = QWidget()
+        self._dash_page     = self._build_dashboard_page()   # 0
+        self._browser_placeholder = QWidget()                 # 1 — replaced per library
+        self._process_page  = self._build_process_page()     # 2
+        self._settings_page = SettingsPage()                  # 3
+        self._log_page      = self._build_log_page()          # 4
 
-        self._stack.addWidget(self._dash_page)          # idx 0
-        self._stack.addWidget(self._browser_placeholder) # idx 1 (replaced per library)
-        self._stack.addWidget(self._process_page)        # idx 2
-        self._stack.addWidget(self._log_page)            # idx 3
+        self._stack.addWidget(self._dash_page)
+        self._stack.addWidget(self._browser_placeholder)
+        self._stack.addWidget(self._process_page)
+        self._stack.addWidget(self._settings_page)
+        self._stack.addWidget(self._log_page)
 
         root.addWidget(self._stack, 1)
 
-        # Status bar
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
         self._status_bar.showMessage('Ready.')
@@ -170,16 +164,14 @@ class MainWindow(QMainWindow):
         title.setProperty('role', 'title')
         layout.addWidget(title)
 
-        # Stats group
         self._stats_grp = QGroupBox('Library Stats')
         self._stats_grid = QGridLayout(self._stats_grp)
         layout.addWidget(self._stats_grp)
 
-        # Quick actions group
         qa_grp = QGroupBox('Quick Actions')
         qa_layout = QHBoxLayout(qa_grp)
 
-        self._dash_btn_new    = QPushButton('Process New Items')
+        self._dash_btn_new = QPushButton('Process New Items')
         self._dash_btn_new.clicked.connect(self._open_new_items_wizard)
         qa_layout.addWidget(self._dash_btn_new)
 
@@ -214,9 +206,13 @@ class MainWindow(QMainWindow):
         title.setProperty('role', 'title')
         layout.addWidget(title)
 
+        self._process_lib_lbl = QLabel('')
+        self._process_lib_lbl.setProperty('role', 'subtitle')
+        layout.addWidget(self._process_lib_lbl)
+
         desc = QLabel(
             'Run individual steps for the active library.\n'
-            'Use the wizards on the Dashboard for guided full-pipeline runs.'
+            'Use the wizards on the Dashboard for a guided full-pipeline run.'
         )
         desc.setProperty('role', 'muted')
         desc.setWordWrap(True)
@@ -224,24 +220,19 @@ class MainWindow(QMainWindow):
 
         grp = QGroupBox('Steps')
         grp_layout = QVBoxLayout(grp)
-
-        steps = [
-            ('Scan Source Folder',          self._run_scan),
-            ('Fetch Metadata',              self._run_metadata),
-            ('Generate Organizer Script',   self._run_organizer),
-            ('Generate HTML Library Page',  self._run_html),
-        ]
-        for label, slot in steps:
+        for label, slot in [
+            ('1. Scan Source Folder',         self._run_scan),
+            ('2. Fetch Metadata',             self._run_metadata),
+            ('3. Generate Organizer Script',  self._run_organizer),
+            ('4. Generate HTML Library Page', self._run_html),
+        ]:
             btn = QPushButton(label)
             btn.clicked.connect(slot)
             grp_layout.addWidget(btn)
-
         layout.addWidget(grp)
 
         self._process_log = LogWidget()
         layout.addWidget(self._process_log, 1)
-
-        self._log_widget = self._process_log   # alias for workers
         return page
 
     # ──────────────────────────────────────────────────────────────────
@@ -263,14 +254,10 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────────────────────────────────
     def _load_library(self, media_type: str):
         from modules.core.config_manager import LibraryConfig
+        import importlib
 
-        lib_path = (
-            self._global_config.libraries_folder() /
-            f'{media_type}.json'
-        )
-        self._lib_config = LibraryConfig(str(lib_path))
+        self._lib_config = LibraryConfig(media_type)
 
-        # Load plugin
         plugin_map = {
             'games':  'modules.media_types.games.GamesPlugin',
             'movies': 'modules.media_types.movies.MoviesPlugin',
@@ -279,26 +266,25 @@ class MainWindow(QMainWindow):
             'music':  'modules.media_types.music.MusicPlugin',
         }
         module_path, class_name = plugin_map[media_type].rsplit('.', 1)
-        import importlib
         mod = importlib.import_module(module_path)
         self._plugin = getattr(mod, class_name)()
 
-        # Sync combo to the loaded library (blocked so it doesn't re-trigger)
+        # Sync combo (blocked to prevent re-trigger)
         self._lib_combo.blockSignals(True)
         idx = self._lib_combo.findData(media_type)
         if idx >= 0:
             self._lib_combo.setCurrentIndex(idx)
         self._lib_combo.blockSignals(False)
 
-        # Replace browser page
         self._rebuild_browser_page()
         self._refresh_dashboard()
+        self._settings_page.load_library(self._lib_config)
+        self._process_lib_lbl.setText(f'Active: {self._plugin.name}')
         self._status_bar.showMessage(f'Library: {self._plugin.name}')
 
     def _rebuild_browser_page(self):
         from modules.gui.library_browser import LibraryBrowser
         old = self._stack.widget(1)
-        # Stop any in-progress load before destroying old page
         if hasattr(old, 'stop_worker'):
             old.stop_worker()
         new_page = LibraryBrowser(self._lib_config, self._plugin, self._ui_state)
@@ -318,46 +304,41 @@ class MainWindow(QMainWindow):
     # Navigation
     # ──────────────────────────────────────────────────────────────────
     def _on_nav_changed(self, row: int):
-        page_map = {0: 0, 1: 1, 2: 2, 3: 3}
-        self._stack.setCurrentIndex(page_map.get(row, 0))
-        # Auto-load browser on first visit only — subsequent refreshes are manual
+        self._stack.setCurrentIndex(_NAV_MAP.get(row, 0))
         if row == 1 and self._browser_page and not self._browser_page._state_loaded:
             self._browser_page.load_data()
 
     # ──────────────────────────────────────────────────────────────────
-    # Dashboard helpers
+    # Dashboard
     # ──────────────────────────────────────────────────────────────────
     def _refresh_dashboard(self):
-        # Clear stats grid
         while self._stats_grid.count():
             item = self._stats_grid.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
+        lib_name = self._plugin.name if self._plugin else 'Unknown'
+        self._stats_grp.setTitle(f'{lib_name} Library Stats')
+
         stats = self._collect_stats()
-        row = 0
-        for label, value in stats.items():
+        for row, (label, value) in enumerate(stats.items()):
             lbl = QLabel(label + ':')
             lbl.setProperty('role', 'card_label')
             val = QLabel(str(value))
             self._stats_grid.addWidget(lbl, row, 0)
             self._stats_grid.addWidget(val, row, 1)
-            row += 1
 
-        # Show/hide HTML button
-        html_file = Path(self._lib_config.html_file) if self._lib_config.html_file else None
-        self._dash_btn_html.setVisible(bool(html_file and html_file.exists()))
+        html_file = self._lib_config.html_file if self._lib_config else None
+        self._dash_btn_html.setVisible(bool(html_file and Path(html_file).exists()))
 
     def _collect_stats(self) -> dict:
-        from pathlib import Path
         import json
-
         stats = {}
+
         scan_file = self._lib_config.scan_list_file
         if scan_file and Path(scan_file).exists():
             with open(scan_file, 'r', encoding='utf-8') as f:
-                scan = json.load(f)
-            stats['Items in scan list'] = len(scan)
+                stats['Items in scan list'] = len(json.load(f))
 
         meta_file = self._lib_config.metadata_file
         if meta_file and Path(meta_file).exists():
@@ -365,13 +346,13 @@ class MainWindow(QMainWindow):
                 meta = json.load(f)
             items = meta.get('processed_items', meta.get('processed_games', {}))
             found = sum(1 for v in items.values() if v.get('igdb_found') or v.get('found'))
-            stats['Metadata found'] = found
+            stats['Metadata found']  = found
             stats['Metadata failed'] = len(items) - found
 
         return stats
 
     # ──────────────────────────────────────────────────────────────────
-    # Process slots
+    # Process workers
     # ──────────────────────────────────────────────────────────────────
     def _run_scan(self):
         from modules.gui.workers import ScanWorker
@@ -399,36 +380,31 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage('Running...')
 
     def _on_worker_finished(self, success: bool, message: str):
-        prefix = 'Done' if success else 'Error'
-        self._status_bar.showMessage(f'{prefix}: {message}')
+        self._status_bar.showMessage(('Done: ' if success else 'Error: ') + message)
         self._refresh_dashboard()
 
     # ──────────────────────────────────────────────────────────────────
-    # Dialog openers
+    # Dialogs
     # ──────────────────────────────────────────────────────────────────
     def _open_new_items_wizard(self):
         from modules.gui.wizard import NewItemsWizard
-        dlg = NewItemsWizard(self._lib_config, self._plugin, self)
-        dlg.exec()
+        NewItemsWizard(self._lib_config, self._plugin, self).exec()
         self._refresh_dashboard()
 
     def _open_refresh_wizard(self):
         from modules.gui.wizard import RefreshDBWizard
-        dlg = RefreshDBWizard(self._lib_config, self._plugin, self)
-        dlg.exec()
+        RefreshDBWizard(self._lib_config, self._plugin, self).exec()
         self._refresh_dashboard()
 
     def _open_failed_dialog(self):
         from modules.gui.failed_dialog import FailedItemsDialog
-        dlg = FailedItemsDialog(self._lib_config, self._plugin, self)
-        dlg.exec()
+        FailedItemsDialog(self._lib_config, self._plugin, self).exec()
 
     def _open_html(self):
         html_file = self._lib_config.html_file
         if html_file and Path(html_file).exists():
-            url = Path(html_file).resolve().as_uri()
             import webbrowser
-            webbrowser.open(url)
+            webbrowser.open(Path(html_file).resolve().as_uri())
 
     # ──────────────────────────────────────────────────────────────────
     # Theme
