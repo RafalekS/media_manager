@@ -64,12 +64,14 @@ class UIState:
 
     def save_table(self, table, key):
         header = table.horizontalHeader()
+        # header.count() works for both QTableWidget and QTableView
+        col_count = header.count()
         self._state[key] = {
             'column_widths': [
-                header.sectionSize(i) for i in range(table.columnCount())
+                header.sectionSize(i) for i in range(col_count)
             ],
             'column_order': [
-                header.logicalIndex(i) for i in range(table.columnCount())
+                header.logicalIndex(i) for i in range(col_count)
             ],
             'sort_column': header.sortIndicatorSection(),
             'sort_order':  header.sortIndicatorOrder().value,
@@ -81,15 +83,16 @@ class UIState:
             return
         s = self._state[key]
         header = table.horizontalHeader()
+        col_count = header.count()
 
         widths = s.get('column_widths', [])
         for i, w in enumerate(widths):
-            if i < table.columnCount() and w > 0:
+            if i < col_count and w > 0:
                 header.resizeSection(i, w)
 
         order = s.get('column_order', [])
         for visual_pos, logical_idx in enumerate(order):
-            if visual_pos < table.columnCount() and logical_idx < table.columnCount():
+            if visual_pos < col_count and logical_idx < col_count:
                 current_visual = header.visualIndex(logical_idx)
                 if current_visual != visual_pos:
                     header.moveSection(current_visual, visual_pos)

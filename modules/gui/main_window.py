@@ -291,6 +291,9 @@ class MainWindow(QMainWindow):
     def _rebuild_browser_page(self):
         from modules.gui.library_browser import LibraryBrowser
         old = self._stack.widget(1)
+        # Stop any in-progress load before destroying old page
+        if hasattr(old, 'stop_worker'):
+            old.stop_worker()
         new_page = LibraryBrowser(self._lib_config, self._plugin, self._ui_state)
         self._stack.insertWidget(1, new_page)
         self._stack.removeWidget(old)

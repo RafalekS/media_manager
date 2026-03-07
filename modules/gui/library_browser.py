@@ -243,6 +243,13 @@ class LibraryBrowser(QWidget):
     def _save_table_state(self):
         self._ui_state.save_table(self._table, self._state_key)
 
+    def stop_worker(self):
+        """Abort any in-progress background load (call before replacing this page)."""
+        if self._worker and self._worker.isRunning():
+            self._worker.done.disconnect()
+            self._worker.quit()
+            self._worker.wait(2000)
+
     def hideEvent(self, event):
         self._debounce.stop()
         if self._state_loaded:
