@@ -310,7 +310,8 @@ class MainWindow(QMainWindow):
     def _on_nav_changed(self, row: int):
         page_map = {0: 0, 1: 1, 2: 2, 3: 3}
         self._stack.setCurrentIndex(page_map.get(row, 0))
-        if row == 1 and self._browser_page:
+        # Auto-load browser on first visit only — subsequent refreshes are manual
+        if row == 1 and self._browser_page and not self._browser_page._state_loaded:
             self._browser_page.load_data()
 
     # ──────────────────────────────────────────────────────────────────

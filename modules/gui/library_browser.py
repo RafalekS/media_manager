@@ -1,12 +1,12 @@
 """
 Library browser page — generic table view driven by plugin.columns.
 Shows all organized items enriched with metadata.
+Data loading runs in a background thread to keep the GUI responsive.
 """
 
-import os
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer, QSortFilterProxyModel
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -14,20 +14,62 @@ from PyQt6.QtWidgets import (
 )
 
 
+# ── Background loader ─────────────────────────────────────────────────────────
+
+class _LoadWorker(QThread):
+    done = pyqtSignal(list)   # emits flat list of item dicts
+
+    def __init__(self, lib_config, plugin):
+        super().__init__()
+        self._lib_config = lib_config
+        self._plugin     = plugin
+
+    def run(self):
+        from modules.core.utils import scan_organized_items, enrich_with_metadata
+
+        dest  = self._lib_config.destination_base
+        skip  = getattr(self._lib_config, 'skip_folders', [])
+        organized = scan_organized_items(dest, skip)
+
+        meta_file = self._lib_config.metadata_file
+        if Path(meta_file).exists():
+            enrich_with_metadata(organized, meta_file)
+
+        # Flatten genre→[items] dict into a plain list
+        flat = []
+        for items in organized.values():
+            flat.extend(items)
+
+        self.done.emit(flat)
+
+
+# ── Browser widget ────────────────────────────────────────────────────────────
+
 class LibraryBrowser(QWidget):
     """
     Generic table browser — columns come from plugin.columns.
-    Extra columns prepended: Folder Name (always present).
+    First column is always 'Name' (folder name).
     """
 
     def __init__(self, lib_config, plugin, ui_state, parent=None):
         super().__init__(parent)
-        self._lib_config = lib_config
-        self._plugin     = plugin
-        self._ui_state   = ui_state
-        self._state_key  = f'browser_{plugin.media_type}'
-        self._data       = []
+        self._lib_config   = lib_config
+        self._plugin       = plugin
+        self._ui_state     = ui_state
+        self._state_key    = f'browser_{plugin.media_type}'
+        self._data         = []          # flat list of item dicts
         self._state_loaded = False
+        self._worker       = None
+
+        # Find which column index (in plugin.columns) holds 'genre'
+        self._genre_col_idx = next(
+            (i for i, (key, _, _) in enumerate(plugin.columns) if key == 'genre'),
+            None,
+        )
+        # In the table: col 0 = name, cols 1..N = plugin.columns
+        self._table_genre_col = (
+            self._genre_col_idx + 1 if self._genre_col_idx is not None else None
+        )
 
         self._debounce = QTimer()
         self._debounce.setSingleShot(True)
@@ -49,13 +91,13 @@ class LibraryBrowser(QWidget):
         hdr.addWidget(title)
         hdr.addStretch()
 
-        self._lbl_count = QLabel('')
-        self._lbl_count.setProperty('role', 'muted')
-        hdr.addWidget(self._lbl_count)
+        self._lbl_status = QLabel('Click Refresh to load.')
+        self._lbl_status.setProperty('role', 'muted')
+        hdr.addWidget(self._lbl_status)
 
-        btn_refresh = QPushButton('Refresh')
-        btn_refresh.clicked.connect(self.load_data)
-        hdr.addWidget(btn_refresh)
+        self._btn_refresh = QPushButton('Refresh')
+        self._btn_refresh.clicked.connect(self.load_data)
+        hdr.addWidget(self._btn_refresh)
 
         layout.addLayout(hdr)
 
@@ -82,17 +124,13 @@ class LibraryBrowser(QWidget):
 
         # Table
         self._model = QStandardItemModel()
-        self._proxy = QSortFilterProxyModel()
-        self._proxy.setSourceModel(self._model)
-        self._proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self._proxy.setFilterKeyColumn(-1)  # search all columns
 
         self._table = QTableView()
-        self._table.setModel(self._proxy)
+        self._table.setModel(self._model)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
-        self._table.setSortingEnabled(False)  # enabled after load
+        self._table.setSortingEnabled(False)
 
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -107,28 +145,28 @@ class LibraryBrowser(QWidget):
         self._build_columns()
 
     def _build_columns(self):
-        """Set up column headers from plugin.columns + Folder column."""
-        headers = ['Folder'] + [col[1] for col in self._plugin.columns]
+        headers = ['Name'] + [col[1] for col in self._plugin.columns]
         self._model.setHorizontalHeaderLabels(headers)
-        # Default widths
-        self._table.setColumnWidth(0, 200)
+        self._table.setColumnWidth(0, 220)
         for i, (_, _, width) in enumerate(self._plugin.columns, start=1):
             self._table.setColumnWidth(i, width)
 
     # ──────────────────────────────────────────────────────────────────
     def load_data(self):
-        from modules.core.utils import scan_organized_items, load_metadata_progress
+        """Start background load — GUI stays responsive."""
+        if self._worker and self._worker.isRunning():
+            return
 
-        dest = self._lib_config.destination_base
-        skip = getattr(self._lib_config, 'skip_folders', [])
-        organized = scan_organized_items(dest, skip)
+        self._btn_refresh.setEnabled(False)
+        self._lbl_status.setText('Loading...')
 
-        meta_file = self._lib_config.metadata_file
-        if Path(meta_file).exists():
-            from modules.core.utils import enrich_with_metadata
-            enrich_with_metadata(organized, meta_file)
+        self._worker = _LoadWorker(self._lib_config, self._plugin)
+        self._worker.done.connect(self._on_data_loaded)
+        self._worker.start()
 
-        self._data = organized
+    def _on_data_loaded(self, flat_list: list):
+        self._data = flat_list
+        self._btn_refresh.setEnabled(True)
         self._populate_table()
         self._populate_genre_filter()
 
@@ -136,7 +174,8 @@ class LibraryBrowser(QWidget):
         self._model.setRowCount(0)
         self._table.setSortingEnabled(False)
 
-        col_keys = ['folder_name'] + [col[0] for col in self._plugin.columns]
+        # Column key order: 'name' (folder name) + plugin column keys
+        col_keys = ['name'] + [col[0] for col in self._plugin.columns]
 
         for item in self._data:
             row = []
@@ -148,57 +187,53 @@ class LibraryBrowser(QWidget):
             self._model.appendRow(row)
 
         self._table.setSortingEnabled(True)
-        self._lbl_count.setText(f'{len(self._data)} items')
+        self._lbl_status.setText(f'{len(self._data)} items')
 
         if not self._state_loaded:
             self._ui_state.restore_table(self._table, self._state_key)
             self._state_loaded = True
 
+        self._apply_filter()
+
     def _populate_genre_filter(self):
         genres = sorted({item.get('genre', '') for item in self._data if item.get('genre')})
-        self._genre_combo.blockSignals(True)
         current = self._genre_combo.currentText()
+        self._genre_combo.blockSignals(True)
         self._genre_combo.clear()
         self._genre_combo.addItem('All Genres')
         for g in genres:
             self._genre_combo.addItem(g)
         idx = self._genre_combo.findText(current)
-        if idx >= 0:
-            self._genre_combo.setCurrentIndex(idx)
+        self._genre_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._genre_combo.blockSignals(False)
 
     # ──────────────────────────────────────────────────────────────────
     def _apply_filter(self):
-        search = self._search.text().strip()
+        search = self._search.text().strip().lower()
         genre  = self._genre_combo.currentText()
         if genre == 'All Genres':
             genre = ''
 
-        if not genre:
-            self._proxy.setFilterWildcard(f'*{search}*' if search else '')
-        else:
-            # Filter manually via row hiding when genre filter active
-            self._proxy.setFilterFixedString('')
-            for row in range(self._model.rowCount()):
-                item_genre = self._model.item(row, 1)  # genre col after folder
-                genre_match = (not genre) or (item_genre and item_genre.text() == genre)
-                # search across all columns
-                search_match = not search
-                if not search_match:
-                    for col in range(self._model.columnCount()):
-                        cell = self._model.item(row, col)
-                        if cell and search.lower() in cell.text().lower():
-                            search_match = True
-                            break
-                # proxy row = source row when no proxy filter active
-                self._table.setRowHidden(row, not (genre_match and search_match))
-            return
+        for row in range(self._model.rowCount()):
+            # Genre match
+            if genre and self._table_genre_col is not None:
+                cell = self._model.item(row, self._table_genre_col)
+                genre_match = bool(cell and cell.text() == genre)
+            else:
+                genre_match = True
 
-        visible = sum(
-            1 for row in range(self._proxy.rowCount())
-            if not self._table.isRowHidden(row)
-        )
-        self._lbl_count.setText(f'{self._proxy.rowCount()} items')
+            # Search match (all columns)
+            if search:
+                search_match = False
+                for col in range(self._model.columnCount()):
+                    cell = self._model.item(row, col)
+                    if cell and search in cell.text().lower():
+                        search_match = True
+                        break
+            else:
+                search_match = True
+
+            self._table.setRowHidden(row, not (genre_match and search_match))
 
     # ──────────────────────────────────────────────────────────────────
     def _on_header_changed(self, *_):
