@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "Music",
+  "media_type": "music",
+  "source_folder": "",
+  "destination_base": "",
+  "data_folder": "data/music",
+  "primary_provider": "musicbrainz",
+  "supplement_providers": [],
+  "genre_file": "config/libraries/music_genres.json",
+  "html_filename": "music_database_dynamic.html",
+  "items_per_page": 50,
+  "api": {
+    "musicbrainz_user_agent": "MediaManager/1.0 (media@example.com)",
+    "rate_limit": 1.0
+  }
+}

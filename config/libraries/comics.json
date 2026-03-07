@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "Comics",
+  "media_type": "comics",
+  "source_folder": "",
+  "destination_base": "",
+  "data_folder": "data/comics",
+  "primary_provider": "comic_vine",
+  "supplement_providers": [],
+  "genre_file": "config/libraries/comics_genres.json",
+  "html_filename": "comics_database_dynamic.html",
+  "items_per_page": 50,
+  "api": {
+    "comic_vine_api_key": "",
+    "rate_limit": 1.0
+  }
+}

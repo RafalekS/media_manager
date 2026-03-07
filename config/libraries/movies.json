@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Movies",
+  "media_type": "movies",
+  "source_folder": "",
+  "destination_base": "",
+  "data_folder": "data/movies",
+  "primary_provider": "tmdb",
+  "supplement_providers": ["omdb"],
+  "genre_file": "config/libraries/movies_genres.json",
+  "html_filename": "movies_database_dynamic.html",
+  "items_per_page": 50,
+  "api": {
+    "tmdb_api_key": "",
+    "omdb_api_key": "",
+    "tmdb_rate_limit": 0.25
+  }
+}

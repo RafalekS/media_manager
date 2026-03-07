@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env
+config/ui_state.json
+data/
+*.log
+backup/
+tests/

@@ -1,0 +1,12 @@
+{
+  "settings": {
+    "active_library": "games",
+    "theme": "Light"
+  },
+  "paths": {
+    "libraries_folder": "config/libraries",
+    "data_folder": "data",
+    "ui_state_file": "config/ui_state.json",
+    "backup_folder": "backup"
+  }
+}

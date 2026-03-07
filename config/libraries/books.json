@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "Books",
+  "media_type": "books",
+  "source_folder": "",
+  "destination_base": "",
+  "data_folder": "data/books",
+  "primary_provider": "google_books",
+  "supplement_providers": ["open_library"],
+  "genre_file": "config/libraries/books_genres.json",
+  "html_filename": "books_database_dynamic.html",
+  "items_per_page": 50,
+  "api": {
+    "google_books_api_key": "",
+    "rate_limit": 0.25
+  }
+}
