@@ -6,12 +6,13 @@
   "destination_base": "",
   "data_folder": "data/music",
   "primary_provider": "musicbrainz",
-  "supplement_providers": [],
+  "supplement_providers": ["lastfm", "discogs"],
   "genre_file": "config/libraries/music_genres.json",
   "html_filename": "music_database_dynamic.html",
   "items_per_page": 50,
+  "bat_output_path": "",
   "api": {
-    "musicbrainz_user_agent": "MediaManager/1.0 (media@example.com)",
-    "rate_limit": 1.0
+    "lastfm_api_key": "",
+    "discogs_token": ""
   }
 }

@@ -6,15 +6,15 @@
   "destination_base": "Y:\\Gry\\",
   "data_folder": "data/games",
   "primary_provider": "igdb",
-  "supplement_providers": ["rawg"],
+  "supplement_providers": ["rawg", "giantbomb"],
   "genre_file": "config/libraries/games_genres.json",
   "html_filename": "games_database_dynamic.html",
   "items_per_page": 50,
   "bat_output_path": "",
   "api": {
-    "igdb_client_id": "",
-    "igdb_client_secret": "",
-    "igdb_rate_limit": 0.3,
-    "rawg_api_key": ""
+    "client_id": "",
+    "client_secret": "",
+    "api_key": "",
+    "giantbomb_api_key": ""
   }
 }

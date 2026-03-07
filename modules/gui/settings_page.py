@@ -12,25 +12,39 @@ from PyQt6.QtWidgets import (
     QScrollArea, QMessageBox, QFileDialog,
 )
 
-
-# Which API fields each library needs
+# API fields per library: (json_key, display_label, is_secret)
 _LIBRARY_API_FIELDS = {
     'games': [
-        ('igdb_client_id',     'IGDB Client ID',     False),
-        ('igdb_client_secret', 'IGDB Client Secret', True),
-        ('rawg_api_key',       'RAWG API Key',        True),
+        ('client_id',        'IGDB Client ID',      False),
+        ('client_secret',    'IGDB Client Secret',  True),
+        ('api_key',          'RAWG API Key',         True),
+        ('giantbomb_api_key','Giant Bomb API Key',   True),
     ],
     'movies': [
-        ('tmdb_api_key',  'TMDB API Key',  True),
-        ('omdb_api_key',  'OMDB API Key',  True),
+        ('tmdb_api_key',    'TMDB API Key',         True),
+        ('omdb_api_key',    'OMDB API Key',          True),
+        ('trakt_client_id', 'Trakt Client ID',       True),
     ],
     'books': [
         ('google_books_api_key', 'Google Books API Key', True),
+        # Open Library + Internet Archive need no keys
     ],
     'comics': [
-        ('comic_vine_api_key', 'Comic Vine API Key', True),
+        ('comic_vine_api_key',  'Comic Vine API Key',    True),
+        ('marvel_public_key',   'Marvel Public Key',     False),
+        ('marvel_private_key',  'Marvel Private Key',    True),
     ],
-    'music': [],   # MusicBrainz needs no key
+    'music': [
+        ('lastfm_api_key',  'Last.fm API Key',   True),
+        ('discogs_token',   'Discogs Token',      True),
+        # MusicBrainz needs no key
+    ],
+}
+
+_LIBRARY_API_NOTES = {
+    'books':  'Open Library and Internet Archive require no API keys.',
+    'music':  'MusicBrainz requires no API key.',
+    'comics': 'MangaDex requires no API key.',
 }
 
 
@@ -38,13 +52,12 @@ class SettingsPage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._lib_config   = None
-        self._api_widgets  = {}   # key -> QLineEdit
-        self._api_grp      = None
-        self._api_form     = None
+        self._lib_config  = None
+        self._api_widgets = {}
+        self._api_grp     = None
+        self._api_form    = None
         self._setup_ui()
 
-    # ──────────────────────────────────────────────────────────────────
     def _setup_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -84,8 +97,8 @@ class SettingsPage(QWidget):
 
         self._layout.addWidget(paths_grp)
 
-        # ── API Keys ─────────────────────────────────────────────────
-        self._api_grp = QGroupBox('API Keys')
+        # ── API Keys (rebuilt per library) ───────────────────────────
+        self._api_grp  = QGroupBox('API Keys')
         self._api_form = QFormLayout(self._api_grp)
         self._layout.addWidget(self._api_grp)
 
@@ -113,8 +126,9 @@ class SettingsPage(QWidget):
         scroll.setWidget(inner)
         outer.addWidget(scroll)
 
-    def _path_row(self, line_edit: QLineEdit, folder: bool) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _path_row(self, line_edit: QLineEdit, folder: bool) -> QWidget:
+        container = QWidget()
+        row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(line_edit)
         btn = QPushButton('Browse')
@@ -124,36 +138,42 @@ class SettingsPage(QWidget):
         else:
             btn.clicked.connect(lambda: self._browse_file(line_edit))
         row.addWidget(btn)
-        return row
+        return container
 
     # ──────────────────────────────────────────────────────────────────
     def load_library(self, lib_config):
-        """Call this whenever the active library changes."""
         self._lib_config = lib_config
-        media_type = lib_config.media_type
-        self._lib_lbl.setText(f'Active library: {media_type.capitalize()}')
+        mt = lib_config.media_type
+        self._lib_lbl.setText(
+            f'Active library: {mt.capitalize()}  —  '
+            f'Providers: {lib_config.primary_provider} + {", ".join(lib_config.supplement_providers)}'
+        )
 
-        # Paths
         self._src.setText(str(lib_config.data.get('source_folder', '')))
         self._dest.setText(str(lib_config.data.get('destination_base', '')))
         self._bat.setText(str(lib_config.data.get('bat_output_path', '')))
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
 
-        # Rebuild API key fields for this library type
-        self._rebuild_api_fields(media_type, lib_config.data.get('api', {}))
+        self._rebuild_api_fields(mt, lib_config.data.get('api', {}))
 
     def _rebuild_api_fields(self, media_type: str, api_data: dict):
-        # Clear existing rows
         while self._api_form.rowCount():
             self._api_form.removeRow(0)
         self._api_widgets.clear()
 
-        fields = _LIBRARY_API_FIELDS.get(media_type, [])
-        if not fields:
-            lbl = QLabel('No API keys required for this library.')
+        note = _LIBRARY_API_NOTES.get(media_type, '')
+        if note:
+            lbl = QLabel(note)
             lbl.setProperty('role', 'muted')
             self._api_form.addRow(lbl)
+
+        fields = _LIBRARY_API_FIELDS.get(media_type, [])
+        if not fields:
+            if not note:
+                lbl = QLabel('No API keys required for this library.')
+                lbl.setProperty('role', 'muted')
+                self._api_form.addRow(lbl)
             return
 
         for key, label, secret in fields:
@@ -168,10 +188,8 @@ class SettingsPage(QWidget):
     def _save(self):
         if not self._lib_config:
             return
-
         data = self._lib_config.data
 
-        # Paths
         src = self._src.text().strip()
         dst = self._dest.text().strip()
         if not src or not dst:
@@ -182,43 +200,23 @@ class SettingsPage(QWidget):
         data['destination_base'] = dst
         data['bat_output_path']  = self._bat.text().strip()
         data['items_per_page']   = self._items_per_page.value()
-
         html_fname = self._html_fname.text().strip()
         if html_fname:
             data['html_filename'] = html_fname
 
-        # API keys
         if 'api' not in data:
             data['api'] = {}
         for key, edit in self._api_widgets.items():
             data['api'][key] = edit.text().strip()
 
-        # Map api sub-keys to top-level provider key names used by providers
-        # e.g. games.json 'api' has 'client_id'/'client_secret' for IGDB
-        api = data['api']
-        mt  = self._lib_config.media_type
-        if mt == 'games':
-            api['client_id']     = api.pop('igdb_client_id',     api.get('client_id', ''))
-            api['client_secret'] = api.pop('igdb_client_secret', api.get('client_secret', ''))
-            api['api_key']       = api.pop('rawg_api_key',       api.get('api_key', ''))
-        elif mt == 'movies':
-            api['tmdb_api_key'] = api.get('tmdb_api_key', '')
-            api['omdb_api_key'] = api.get('omdb_api_key', '')
-        elif mt == 'books':
-            api['api_key'] = api.pop('google_books_api_key', api.get('api_key', ''))
-        elif mt == 'comics':
-            api['api_key'] = api.pop('comic_vine_api_key', api.get('api_key', ''))
-
         try:
             with open(self._lib_config.path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            # Reload the config data in-memory
             self._lib_config.data = data
             QMessageBox.information(self, 'Saved', 'Settings saved.')
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Failed to save:\n{e}')
 
-    # ──────────────────────────────────────────────────────────────────
     def _browse_folder(self, edit: QLineEdit):
         folder = QFileDialog.getExistingDirectory(self, 'Select Folder', edit.text())
         if folder:
@@ -226,7 +224,8 @@ class SettingsPage(QWidget):
 
     def _browse_file(self, edit: QLineEdit):
         path, _ = QFileDialog.getSaveFileName(
-            self, 'Select Output File', edit.text(), 'Batch Files (*.bat);;All Files (*)'
+            self, 'Select Output File', edit.text(),
+            'Batch Files (*.bat);;All Files (*)'
         )
         if path:
             edit.setText(path)

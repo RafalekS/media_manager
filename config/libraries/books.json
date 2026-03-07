@@ -6,12 +6,12 @@
   "destination_base": "",
   "data_folder": "data/books",
   "primary_provider": "google_books",
-  "supplement_providers": ["open_library"],
+  "supplement_providers": ["open_library", "internet_archive"],
   "genre_file": "config/libraries/books_genres.json",
   "html_filename": "books_database_dynamic.html",
   "items_per_page": 50,
+  "bat_output_path": "",
   "api": {
-    "google_books_api_key": "",
-    "rate_limit": 0.25
+    "google_books_api_key": ""
   }
 }

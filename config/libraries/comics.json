@@ -6,12 +6,14 @@
   "destination_base": "",
   "data_folder": "data/comics",
   "primary_provider": "comic_vine",
-  "supplement_providers": [],
+  "supplement_providers": ["mangadex", "marvel"],
   "genre_file": "config/libraries/comics_genres.json",
   "html_filename": "comics_database_dynamic.html",
   "items_per_page": 50,
+  "bat_output_path": "",
   "api": {
     "comic_vine_api_key": "",
-    "rate_limit": 1.0
+    "marvel_public_key": "",
+    "marvel_private_key": ""
   }
 }

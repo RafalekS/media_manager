@@ -6,13 +6,14 @@
   "destination_base": "",
   "data_folder": "data/movies",
   "primary_provider": "tmdb",
-  "supplement_providers": ["omdb"],
+  "supplement_providers": ["omdb", "trakt"],
   "genre_file": "config/libraries/movies_genres.json",
   "html_filename": "movies_database_dynamic.html",
   "items_per_page": 50,
+  "bat_output_path": "",
   "api": {
     "tmdb_api_key": "",
     "omdb_api_key": "",
-    "tmdb_rate_limit": 0.25
+    "trakt_client_id": ""
   }
 }
