@@ -5,6 +5,8 @@
   "source_folder": "",
   "destination_base": "Y:\\Multimedia\\Filmy",
   "organize_enabled": true,
+  "scan_mode": "folders",
+  "file_extensions": [".mkv", ".mp4", ".avi", ".m4v"],
   "data_folder": "data/movies",
   "primary_provider": "tmdb",
   "supplement_providers": ["omdb", "trakt"],

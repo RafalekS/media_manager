@@ -12,23 +12,27 @@ from modules.core.utils import load_metadata_progress, save_metadata_progress
 from modules.providers import get_provider_class
 
 
-def process_metadata(lib_config, plugin):
+def process_metadata(lib_config, plugin, full_collection: bool = False):
     """
-    Fetch metadata for all items in scan_list.json that haven't been
-    successfully processed yet.  Results written to metadata_progress.json.
+    Fetch metadata for items not yet successfully processed.
+    full_collection=True: scan destination folder for ALL items, not just scan_list.json.
     """
-    scan_file = lib_config.scan_list_file
-    if not Path(scan_file).exists():
-        print(f'[Metadata] scan_list.json not found: {scan_file}')
-        print('[Metadata] Run a scan first.')
-        return
-
-    with open(scan_file, 'r', encoding='utf-8') as f:
-        scan_list = json.load(f)
-
-    if not scan_list:
-        print('[Metadata] Scan list is empty.')
-        return
+    if full_collection:
+        scan_list = _build_full_collection_scan(lib_config, plugin)
+        if not scan_list:
+            print('[Metadata] No items found in destination folder.')
+            return
+    else:
+        scan_file = lib_config.scan_list_file
+        if not Path(scan_file).exists():
+            print(f'[Metadata] scan_list.json not found: {scan_file}')
+            print('[Metadata] Run a scan first.')
+            return
+        with open(scan_file, 'r', encoding='utf-8') as f:
+            scan_list = json.load(f)
+        if not scan_list:
+            print('[Metadata] Scan list is empty.')
+            return
 
     meta_file = lib_config.metadata_file
     progress   = load_metadata_progress(meta_file)
@@ -139,3 +143,31 @@ def _merge_supplement(primary: dict, supplement: dict):
     for key in ('description', 'cover_url', 'genre', 'genres', 'rating', 'year', 'website_url'):
         if not primary.get(key) and supplement.get(key):
             primary[key] = supplement[key]
+
+
+def _build_full_collection_scan(lib_config, plugin) -> list:
+    """
+    Build a scan list from the destination folder directly (full-collection mode).
+    Scans genre subfolders and returns item dicts in the same format as scan_list.json.
+    Respects scan_mode and file_extensions settings.
+    """
+    from modules.core.base_scanner import _scan_target
+    dest = str(lib_config.destination_base)
+    skip = set(lib_config.skip_folders)
+    skip.add('new')
+    scan_mode  = lib_config.data.get('scan_mode', 'folders')
+    extensions = [e.lower() for e in lib_config.data.get('file_extensions', [])]
+
+    items = []
+    dest_path = Path(dest)
+    if not dest_path.exists():
+        print(f'[Metadata] Destination not found: {dest}')
+        return []
+
+    for genre_dir in sorted(dest_path.iterdir()):
+        if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
+            continue
+        items.extend(_scan_target(str(genre_dir), plugin.clean_name, scan_mode, extensions))
+
+    print(f'[Metadata] Full collection: found {len(items)} items in {dest}')
+    return items

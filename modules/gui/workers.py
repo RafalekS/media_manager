@@ -52,17 +52,19 @@ class MetadataWorker(QThread):
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, lib_config, plugin, stream):
+    def __init__(self, lib_config, plugin, stream, full_collection: bool = False):
         super().__init__()
-        self._lib_config = lib_config
-        self._plugin     = plugin
-        self._stream     = stream
+        self._lib_config      = lib_config
+        self._plugin          = plugin
+        self._stream          = stream
+        self._full_collection = full_collection
 
     def run(self):
         with _redirect_stdout(self._stream):
             try:
                 from modules.core.base_metadata_processor import process_metadata
-                process_metadata(self._lib_config, self._plugin)
+                process_metadata(self._lib_config, self._plugin,
+                                 full_collection=self._full_collection)
                 self.finished.emit(True, 'Metadata fetch complete.')
             except Exception as e:
                 traceback.print_exc()

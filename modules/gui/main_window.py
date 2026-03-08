@@ -1,7 +1,12 @@
 """
 Main application window for Media Manager.
 
-Nav:  Dashboard | Scan | Metadata | Failed Items | Organize | Generate HTML | Library | Settings | Log
+Layout (matches game_processor):
+  QSplitter (Vertical)
+    ├── top: Sidebar | QStackedWidget (pages)
+    └── bottom: Shared LogWidget
+
+Nav: Dashboard | Scan | Metadata | Failed Items | Organize | Generate HTML | Library | Settings
 """
 
 import os
@@ -9,14 +14,15 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
     QLabel, QListWidget, QListWidgetItem, QStackedWidget,
     QPushButton, QComboBox, QFrame, QScrollArea,
     QSizePolicy as QSP, QStatusBar, QApplication,
-    QGroupBox, QFormLayout, QCheckBox,
+    QGroupBox, QFormLayout, QCheckBox, QRadioButton, QButtonGroup,
+    QProgressBar, QMessageBox,
 )
 
 from modules.gui.log_widget import LogWidget
@@ -27,7 +33,6 @@ from modules.gui.settings_page import SettingsPage
 APP_VERSION = '1.0.0'
 _ROOT = Path(__file__).parent.parent.parent
 
-# Nav index constants
 _PAGE_DASHBOARD  = 0
 _PAGE_SCAN       = 1
 _PAGE_METADATA   = 2
@@ -36,10 +41,9 @@ _PAGE_ORGANIZE   = 4
 _PAGE_HTML       = 5
 _PAGE_LIBRARY    = 6
 _PAGE_SETTINGS   = 7
-_PAGE_LOG        = 8
 
 
-# ── Stat card ─────────────────────────────────────────────────────────────────
+# ── Stat card ──────────────────────────────────────────────────────────────────
 
 class _StatCard(QFrame):
     def __init__(self, label: str, value: str = '—', accent: str = '#2563eb', parent=None):
@@ -73,7 +77,7 @@ class _StatCard(QFrame):
         self._apply_style(card_bg, card_border)
 
 
-# ── Wizard card ───────────────────────────────────────────────────────────────
+# ── Wizard card ────────────────────────────────────────────────────────────────
 
 class _WizardCard(QFrame):
     def __init__(self, title: str, subtitle: str, btn_text: str,
@@ -106,7 +110,7 @@ class _WizardCard(QFrame):
         self._btn.setEnabled(enabled)
 
 
-# ── Main Window ───────────────────────────────────────────────────────────────
+# ── Main Window ────────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
 
@@ -119,6 +123,8 @@ class MainWindow(QMainWindow):
         self._browser_page = None
         self._worker     = None
         self._stat_cards = []
+        self._active_progress = None   # QProgressBar of the currently-running step
+        self._active_run_btn  = None   # QPushButton to re-enable on finish
 
         self.setWindowTitle('Media Manager')
         self._apply_theme(global_config.theme)
@@ -127,9 +133,7 @@ class MainWindow(QMainWindow):
         self._ui_state.restore_window(self)
         self._load_library(global_config.active_library)
 
-    # ──────────────────────────────────────────────────────────────────
-    # Theme / icon
-    # ──────────────────────────────────────────────────────────────────
+    # ── Theme / icon ──────────────────────────────────────────────────
     def _apply_theme(self, name: str):
         QApplication.instance().setStyleSheet(build_stylesheet(name))
         if hasattr(self, '_stat_cards') and self._stat_cards:
@@ -138,12 +142,11 @@ class MainWindow(QMainWindow):
                 card.apply_theme(t['card_bg'], t['card_border'])
 
     def _set_window_icon(self, theme: str):
-        from PyQt6.QtCore import QTimer
         dark_themes = {'Dark', 'Midnight', 'Slate'}
         if theme in dark_themes:
-            icon_name = 'light_media_mgr.png'   # light icon on dark bg
+            icon_name = 'light_media_mgr.png'
         elif theme == 'Light':
-            icon_name = 'dark_media_mgr.png'    # dark icon on light bg
+            icon_name = 'dark_media_mgr.png'
         else:
             icon_name = 'color_media_mgr.png'
         icon_path = _ROOT / 'assets' / icon_name
@@ -151,39 +154,65 @@ class MainWindow(QMainWindow):
             icon_path = _ROOT / 'assets' / 'color_media_mgr.png'
         if icon_path.exists():
             icon = QIcon(str(icon_path))
-            # Clear first — Qt caches the previous icon on Windows
             self.setWindowIcon(QIcon())
             QApplication.instance().setWindowIcon(QIcon())
-            # Defer the actual set so the clear is processed first
             QTimer.singleShot(50, lambda: (
                 self.setWindowIcon(icon),
                 QApplication.instance().setWindowIcon(icon),
             ))
 
-    # ──────────────────────────────────────────────────────────────────
-    # Build UI
-    # ──────────────────────────────────────────────────────────────────
+    # ── Build UI ──────────────────────────────────────────────────────
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        root = QHBoxLayout(central)
+        root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_sidebar())
+        # Vertical splitter: content on top, shared log at bottom
+        self._main_splitter = QSplitter(Qt.Orientation.Vertical)
+        root.addWidget(self._main_splitter)
+
+        top = QWidget()
+        top_lay = QHBoxLayout(top)
+        top_lay.setContentsMargins(0, 0, 0, 0)
+        top_lay.setSpacing(0)
+        self._main_splitter.addWidget(top)
+
+        top_lay.addWidget(self._build_sidebar())
 
         self._stack = QStackedWidget()
         self._stack.setObjectName('content_widget')
+        top_lay.addWidget(self._stack, 1)
 
-        self._dash_page     = self._build_dashboard_page()
-        self._scan_page     = self._build_step_page('Scan', 'Scan source folder for new items.', self._run_scan)
-        self._meta_page     = self._build_step_page('Metadata', 'Fetch metadata from providers for all scanned items.', self._run_metadata)
-        self._failed_page   = self._build_step_page('Failed Items', 'Review and manually assign genres to failed lookups.', self._open_failed_dialog, btn_label='Open Failed Items Dialog')
-        self._org_page      = self._build_step_page('Organize', 'Generate the organizer batch script.', self._run_organizer)
-        self._html_page     = self._build_step_page('Generate HTML', 'Build the dynamic HTML library page.', self._run_html)
+        # Shared log panel at bottom
+        self._log = LogWidget()
+        self._main_splitter.addWidget(self._log)
+        self._main_splitter.setSizes([700, 200])
+        self._main_splitter.setCollapsible(1, True)
+
+        # Build all pages
+        self._dash_page   = self._build_dashboard_page()
+        self._scan_page   = self._build_scan_page()
+        self._meta_page   = self._build_metadata_page()
+        self._failed_page = self._build_simple_page(
+            'Failed Items',
+            'Review and manually assign genres to items that couldn\'t be matched.',
+            'Open Failed Items Dialog', self._open_failed_dialog,
+        )
+        self._org_page  = self._build_simple_page(
+            'Organize',
+            'Generate a batch script that moves items into genre folders.\n'
+            'Review the script before running — no files are moved until you execute it.',
+            'Generate Organize Script', self._run_organizer,
+        )
+        self._html_page = self._build_simple_page(
+            'Generate HTML',
+            'Build the dynamic HTML library page from your metadata database.',
+            'Generate HTML', self._run_html,
+        )
         self._browser_placeholder = QWidget()
         self._settings_page = SettingsPage()
-        self._log_page      = self._build_log_page()
 
         for page in (
             self._dash_page,           # 0
@@ -194,11 +223,10 @@ class MainWindow(QMainWindow):
             self._html_page,           # 5
             self._browser_placeholder, # 6
             self._settings_page,       # 7
-            self._log_page,            # 8
         ):
             self._stack.addWidget(page)
 
-        root.addWidget(self._stack, 1)
+        self._ui_state.restore_splitter(self._main_splitter, 'main_splitter')
 
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
@@ -241,7 +269,7 @@ class MainWindow(QMainWindow):
         for label in [
             'Dashboard', 'Scan', 'Metadata',
             'Failed Items', 'Organize', 'Generate HTML',
-            'Library', 'Settings', 'Log',
+            'Library', 'Settings',
         ]:
             self._nav.addItem(QListWidgetItem(label))
         self._nav.setCurrentRow(0)
@@ -275,12 +303,11 @@ class MainWindow(QMainWindow):
             self._lib_combo.addItem(lib.capitalize(), userData=lib)
         self._lib_combo.blockSignals(False)
 
-    # ──────────────────────────────────────────────────────────────────
-    # Dashboard page
-    # ──────────────────────────────────────────────────────────────────
+    # ── Dashboard page ────────────────────────────────────────────────
     def _build_dashboard_page(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         lay = QVBoxLayout(inner)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -294,42 +321,34 @@ class MainWindow(QMainWindow):
         self._dash_lib_lbl.setProperty('role', 'subtitle')
         lay.addWidget(self._dash_lib_lbl)
 
-        # Wizard cards row
+        # Wizard cards
         wizard_row = QHBoxLayout()
         wizard_row.setSpacing(10)
-
         self._wiz_new = _WizardCard(
             'New Items Wizard',
             'Scan → Metadata → Organize → HTML in one guided flow.',
-            'Launch',
-            self._open_new_items_wizard,
-            '#2563eb',
+            'Launch', self._open_new_items_wizard, '#2563eb',
         )
         wizard_row.addWidget(self._wiz_new)
-
         self._wiz_refresh = _WizardCard(
             'Refresh Database Wizard',
             'Re-fetch metadata and regenerate the HTML library page.',
-            'Launch',
-            self._open_refresh_wizard,
-            '#0891b2',
+            'Launch', self._open_refresh_wizard, '#0891b2',
         )
         wizard_row.addWidget(self._wiz_refresh)
-
         lay.addLayout(wizard_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         lay.addWidget(sep)
 
-        # Stat cards row
+        # Stat cards
         stats_row = QHBoxLayout()
         stats_row.setSpacing(10)
-
-        self._card_scanned  = _StatCard('Items Scanned',   '—', '#2563eb')
-        self._card_found    = _StatCard('Metadata Found',  '—', '#10b981')
-        self._card_failed   = _StatCard('Metadata Failed', '—', '#ef4444')
-        self._card_organized = _StatCard('Organized',      '—', '#f59e0b')
+        self._card_scanned   = _StatCard('Items Scanned',   '—', '#2563eb')
+        self._card_found     = _StatCard('Metadata Found',  '—', '#10b981')
+        self._card_failed    = _StatCard('Metadata Failed', '—', '#ef4444')
+        self._card_organized = _StatCard('With Genre',      '—', '#f59e0b')
         self._stat_cards = [
             self._card_scanned, self._card_found,
             self._card_failed, self._card_organized,
@@ -338,28 +357,127 @@ class MainWindow(QMainWindow):
             stats_row.addWidget(c)
         lay.addLayout(stats_row)
 
-        # Config summary
         self._dash_paths_lbl = QLabel('')
         self._dash_paths_lbl.setProperty('role', 'muted')
         self._dash_paths_lbl.setWordWrap(True)
         lay.addWidget(self._dash_paths_lbl)
 
-        # HTML button
+        html_row = QHBoxLayout()
         self._dash_btn_html = QPushButton('Open HTML Library')
         self._dash_btn_html.clicked.connect(self._open_html)
         self._dash_btn_html.setVisible(False)
         self._dash_btn_html.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
-        lay.addWidget(self._dash_btn_html)
+        html_row.addWidget(self._dash_btn_html)
+        html_row.addStretch()
+        lay.addLayout(html_row)
 
         lay.addStretch()
         scroll.setWidget(inner)
         return scroll
 
-    # ──────────────────────────────────────────────────────────────────
-    # Generic step page (Scan / Metadata / Organize / HTML)
-    # ──────────────────────────────────────────────────────────────────
-    def _build_step_page(self, title: str, description: str,
-                         action_slot, btn_label: str = 'Run') -> QWidget:
+    # ── Scan page ─────────────────────────────────────────────────────
+    def _build_scan_page(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(10)
+
+        lbl = QLabel('Scan')
+        lbl.setProperty('role', 'title')
+        lay.addWidget(lbl)
+
+        desc = QLabel(
+            'Scan source folder for new items and create scan_list.json.\n'
+            'For libraries without a separate source, scans the destination directly.'
+        )
+        desc.setProperty('role', 'muted')
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+
+        grp = QGroupBox('Options')
+        grp_lay = QVBoxLayout(grp)
+        self._scan_force = QCheckBox('Force rescan (ignore existing scan_list.json)')
+        self._scan_force.setChecked(True)
+        grp_lay.addWidget(self._scan_force)
+        self._scan_path_lbl = QLabel('')
+        self._scan_path_lbl.setProperty('role', 'muted')
+        grp_lay.addWidget(self._scan_path_lbl)
+        lay.addWidget(grp)
+
+        btn = QPushButton('Scan Now')
+        btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        btn.clicked.connect(self._run_scan)
+        lay.addWidget(btn)
+
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.setVisible(False)
+        lay.addWidget(progress)
+
+        page._run_btn  = btn
+        page._progress = progress
+        lay.addStretch()
+        return page
+
+    # ── Metadata page ─────────────────────────────────────────────────
+    def _build_metadata_page(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(10)
+
+        lbl = QLabel('Metadata')
+        lbl.setProperty('role', 'title')
+        lay.addWidget(lbl)
+
+        desc = QLabel('Fetch metadata from providers for scanned items.')
+        desc.setProperty('role', 'muted')
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+
+        grp = QGroupBox('Query Mode')
+        grp_lay = QVBoxLayout(grp)
+
+        self._meta_radio_new  = QRadioButton('New items only — process scan_list.json (skips already found)')
+        self._meta_radio_full = QRadioButton('Full collection — re-query all items in destination folder')
+        self._meta_radio_new.setChecked(True)
+
+        self._meta_mode_grp = QButtonGroup(self)
+        self._meta_mode_grp.addButton(self._meta_radio_new,  1)
+        self._meta_mode_grp.addButton(self._meta_radio_full, 2)
+
+        warn = QLabel(
+            'Full collection queries all items found in the destination folder. '
+            'Skips items already in metadata_progress.json. May take several minutes.'
+        )
+        warn.setProperty('role', 'muted')
+        warn.setWordWrap(True)
+        warn.setVisible(False)
+        self._meta_radio_full.toggled.connect(warn.setVisible)
+
+        grp_lay.addWidget(self._meta_radio_new)
+        grp_lay.addWidget(self._meta_radio_full)
+        grp_lay.addWidget(warn)
+        lay.addWidget(grp)
+
+        btn = QPushButton('Start Metadata Fetch')
+        btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        btn.clicked.connect(self._run_metadata)
+        lay.addWidget(btn)
+
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.setVisible(False)
+        lay.addWidget(progress)
+
+        page._run_btn  = btn
+        page._progress = progress
+        lay.addStretch()
+        return page
+
+    # ── Generic step page (Organize / HTML / Failed) ──────────────────
+    def _build_simple_page(self, title: str, description: str,
+                           btn_label: str, action_slot) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -379,34 +497,17 @@ class MainWindow(QMainWindow):
         btn.clicked.connect(action_slot)
         lay.addWidget(btn)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        lay.addWidget(sep)
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.setVisible(False)
+        lay.addWidget(progress)
 
-        log = LogWidget()
-        lay.addWidget(log, 1)
-
-        # Store log widget ref on page for worker use
-        page._log = log
+        page._run_btn  = btn
+        page._progress = progress
+        lay.addStretch()
         return page
 
-    # ──────────────────────────────────────────────────────────────────
-    # Log page
-    # ──────────────────────────────────────────────────────────────────
-    def _build_log_page(self) -> QWidget:
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lbl = QLabel('Log')
-        lbl.setProperty('role', 'title')
-        lay.addWidget(lbl)
-        self._main_log = LogWidget()
-        lay.addWidget(self._main_log, 1)
-        return page
-
-    # ──────────────────────────────────────────────────────────────────
-    # Library switching
-    # ──────────────────────────────────────────────────────────────────
+    # ── Library switching ─────────────────────────────────────────────
     def _load_library(self, media_type: str):
         import importlib
         from modules.core.config_manager import LibraryConfig
@@ -434,10 +535,22 @@ class MainWindow(QMainWindow):
         self._settings_page.load_library(self._lib_config)
         self._refresh_dashboard()
         self._update_organize_nav()
+        self._update_scan_path_label()
         self._status_bar.showMessage(f'Library: {self._plugin.name}')
 
+    def _update_scan_path_label(self):
+        if not hasattr(self, '_scan_path_lbl'):
+            return
+        src  = str(self._lib_config.data.get('source_folder', '') or '')
+        dest = str(self._lib_config.data.get('destination_base', '') or '')
+        if src and src != dest:
+            self._scan_path_lbl.setText(f'Source: {src}')
+        elif dest:
+            self._scan_path_lbl.setText(f'Scanning destination directly: {dest}')
+        else:
+            self._scan_path_lbl.setText('No folder configured — set paths in Settings.')
+
     def _update_organize_nav(self):
-        """Enable/disable the Organize nav item based on the current library's organize_enabled flag."""
         enabled = self._lib_config.data.get('organize_enabled', True)
         item = self._nav.item(_PAGE_ORGANIZE)
         if enabled:
@@ -450,6 +563,8 @@ class MainWindow(QMainWindow):
         old = self._stack.widget(_PAGE_LIBRARY)
         if hasattr(old, 'stop_worker'):
             old.stop_worker()
+        if hasattr(old, 'save_state'):
+            old.save_state()
         new_page = LibraryBrowser(self._lib_config, self._plugin, self._ui_state)
         self._stack.insertWidget(_PAGE_LIBRARY, new_page)
         self._stack.removeWidget(old)
@@ -463,17 +578,15 @@ class MainWindow(QMainWindow):
             self._load_library(media_type)
             self._global_config.set_active_library(media_type)
 
-    # ──────────────────────────────────────────────────────────────────
-    # Navigation
-    # ──────────────────────────────────────────────────────────────────
+    # ── Navigation ────────────────────────────────────────────────────
     def _on_nav_changed(self, row: int):
         self._stack.setCurrentIndex(row)
-        if row == _PAGE_LIBRARY and self._browser_page and not self._browser_page._state_loaded:
+        if row == _PAGE_DASHBOARD:
+            self._refresh_dashboard()
+        elif row == _PAGE_LIBRARY and self._browser_page and not self._browser_page._state_loaded:
             self._browser_page.load_data()
 
-    # ──────────────────────────────────────────────────────────────────
-    # Dashboard refresh
-    # ──────────────────────────────────────────────────────────────────
+    # ── Dashboard refresh ─────────────────────────────────────────────
     def _refresh_dashboard(self):
         import json
 
@@ -482,10 +595,9 @@ class MainWindow(QMainWindow):
         dest = self._lib_config.data.get('destination_base', '') or '—'
         if self._plugin:
             self._dash_lib_lbl.setText(
-                f'{self._plugin.icon} {lib_name}  |  Source: {src}  Destination: {dest}'
+                f'{self._plugin.icon} {lib_name}  |  Source: {src}  |  Destination: {dest}'
             )
 
-        # Read stats from JSON only — never scan the filesystem here (would freeze on large libraries)
         scanned = found = failed = organized = 0
 
         scan_file = self._lib_config.scan_list_file
@@ -504,7 +616,10 @@ class MainWindow(QMainWindow):
                 items = meta.get('processed_items', meta.get('processed_games', {}))
                 found     = sum(1 for v in items.values() if v.get('igdb_found') or v.get('found'))
                 failed    = len(items) - found
-                organized = sum(1 for v in items.values() if (v.get('igdb_found') or v.get('found')) and v.get('genre'))
+                organized = sum(
+                    1 for v in items.values()
+                    if (v.get('igdb_found') or v.get('found')) and v.get('genre')
+                )
             except Exception:
                 pass
 
@@ -520,30 +635,43 @@ class MainWindow(QMainWindow):
         for card in self._stat_cards:
             card.apply_theme(t['card_bg'], t['card_border'])
 
-    # ──────────────────────────────────────────────────────────────────
-    # Workers
-    # ──────────────────────────────────────────────────────────────────
-    def _current_log(self) -> LogWidget:
-        page = self._stack.currentWidget()
-        return getattr(page, '_log', self._main_log)
-
+    # ── Workers ───────────────────────────────────────────────────────
     def _run_scan(self):
         from modules.gui.workers import ScanWorker
-        self._start_worker(ScanWorker(self._lib_config, self._plugin, self._current_log().stream))
+        force = self._scan_force.isChecked()
+        w = ScanWorker(self._lib_config, self._plugin, self._log.stream, force=force)
+        self._start_worker(w, self._scan_page)
 
     def _run_metadata(self):
         from modules.gui.workers import MetadataWorker
-        self._start_worker(MetadataWorker(self._lib_config, self._plugin, self._current_log().stream))
+        full = self._meta_radio_full.isChecked()
+        if full:
+            ans = QMessageBox.question(
+                self, 'Full Collection Scan',
+                'Re-query all items in the destination folder not yet in the database.\n\nContinue?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if ans != QMessageBox.StandardButton.Yes:
+                return
+        w = MetadataWorker(self._lib_config, self._plugin, self._log.stream,
+                           full_collection=full)
+        self._start_worker(w, self._meta_page)
 
     def _run_organizer(self):
         from modules.gui.workers import OrganizerWorker
-        self._start_worker(OrganizerWorker(self._lib_config, self._plugin, self._current_log().stream))
+        self._start_worker(
+            OrganizerWorker(self._lib_config, self._plugin, self._log.stream),
+            self._org_page,
+        )
 
     def _run_html(self):
         from modules.gui.workers import HTMLWorker
-        self._start_worker(HTMLWorker(self._lib_config, self._plugin, self._current_log().stream))
+        self._start_worker(
+            HTMLWorker(self._lib_config, self._plugin, self._log.stream),
+            self._html_page,
+        )
 
-    def _start_worker(self, worker):
+    def _start_worker(self, worker, page=None):
         if self._worker and self._worker.isRunning():
             self._status_bar.showMessage('A task is already running.')
             return
@@ -552,13 +680,23 @@ class MainWindow(QMainWindow):
         self._worker.start()
         self._status_bar.showMessage('Running...')
 
+        if page and hasattr(page, '_progress'):
+            self._active_progress = page._progress
+            self._active_run_btn  = page._run_btn
+            page._progress.setVisible(True)
+            page._run_btn.setEnabled(False)
+
     def _on_worker_finished(self, success: bool, message: str):
         self._status_bar.showMessage(('Done: ' if success else 'Error: ') + message)
+        if self._active_progress:
+            self._active_progress.setVisible(False)
+            self._active_progress = None
+        if self._active_run_btn:
+            self._active_run_btn.setEnabled(True)
+            self._active_run_btn = None
         self._refresh_dashboard()
 
-    # ──────────────────────────────────────────────────────────────────
-    # Dialogs
-    # ──────────────────────────────────────────────────────────────────
+    # ── Dialogs ───────────────────────────────────────────────────────
     def _open_new_items_wizard(self):
         from modules.gui.wizard import NewItemsWizard
         NewItemsWizard(self._lib_config, self._plugin, self).exec()
@@ -578,20 +716,30 @@ class MainWindow(QMainWindow):
         if html_file and Path(html_file).exists():
             webbrowser.open(Path(html_file).resolve().as_uri())
 
-    # ──────────────────────────────────────────────────────────────────
-    # Theme
-    # ──────────────────────────────────────────────────────────────────
+    # ── Theme ─────────────────────────────────────────────────────────
     def _on_theme_changed(self, name: str):
         self._apply_theme(name)
         self._set_window_icon(name)
         self._global_config.set_theme(name)
 
-    # ──────────────────────────────────────────────────────────────────
-    # Close
-    # ──────────────────────────────────────────────────────────────────
+    # ── Close ─────────────────────────────────────────────────────────
     def closeEvent(self, event):
-        self._ui_state.save_window(self)
         if self._worker and self._worker.isRunning():
+            ans = QMessageBox.question(
+                self, 'Operation Running',
+                'A task is still running. Quit anyway?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if ans != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
             self._worker.quit()
             self._worker.wait(3000)
+
+        # Save library browser column state explicitly (matches game_processor pattern)
+        if self._browser_page and hasattr(self._browser_page, 'save_state'):
+            self._browser_page.save_state()
+
+        self._ui_state.save_window(self)
+        self._ui_state.save_splitter(self._main_splitter, 'main_splitter')
         super().closeEvent(event)

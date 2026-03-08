@@ -5,6 +5,8 @@
   "source_folder": "",
   "destination_base": "Y:\\Kindle",
   "organize_enabled": false,
+  "scan_mode": "files",
+  "file_extensions": [".epub", ".pdf", ".mobi", ".azw3", ".azw"],
   "data_folder": "data/books",
   "primary_provider": "google_books",
   "supplement_providers": ["open_library", "internet_archive"],

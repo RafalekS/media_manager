@@ -5,6 +5,8 @@
   "source_folder": "",
   "destination_base": "Y:\\Music",
   "organize_enabled": false,
+  "scan_mode": "folders",
+  "file_extensions": [".mp3", ".flac", ".m4a", ".ogg", ".wav", ".aac"],
   "data_folder": "data/music",
   "primary_provider": "musicbrainz",
   "supplement_providers": ["lastfm", "discogs"],

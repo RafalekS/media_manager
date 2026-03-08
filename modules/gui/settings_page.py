@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QSpinBox, QDoubleSpinBox,
     QPushButton, QGroupBox, QScrollArea, QMessageBox,
-    QFileDialog, QCheckBox, QFrame,
+    QFileDialog, QCheckBox, QFrame, QComboBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -98,6 +98,16 @@ class SettingsPage(QWidget):
         self._organize_enabled = QCheckBox('Enable Organize step (requires separate Source folder)')
         paths_form.addRow('', self._organize_enabled)
 
+        self._scan_mode = QComboBox()
+        self._scan_mode.addItems(['folders', 'files'])
+        self._scan_mode.currentTextChanged.connect(self._on_scan_mode_changed)
+        paths_form.addRow('Scan mode:', self._scan_mode)
+
+        self._file_extensions = QLineEdit()
+        self._file_extensions.setPlaceholderText('e.g. .mp3, .flac, .m4a  (comma-separated, only for Files mode)')
+        self._ext_row_label = QLabel('File extensions:')
+        paths_form.addRow(self._ext_row_label, self._file_extensions)
+
         self._bat = QLineEdit()
         self._bat.setPlaceholderText('(leave blank = destination base)')
         paths_form.addRow('Script Output Path:', self._path_row(self._bat, folder=False))
@@ -174,12 +184,26 @@ class SettingsPage(QWidget):
         self._src.setText(str(lib_config.data.get('source_folder', '')))
         self._dest.setText(str(lib_config.data.get('destination_base', '')))
         self._organize_enabled.setChecked(lib_config.data.get('organize_enabled', True))
+
+        scan_mode = lib_config.data.get('scan_mode', 'folders')
+        self._scan_mode.blockSignals(True)
+        self._scan_mode.setCurrentText(scan_mode)
+        self._scan_mode.blockSignals(False)
+        exts = lib_config.data.get('file_extensions', [])
+        self._file_extensions.setText(', '.join(exts))
+        self._on_scan_mode_changed(scan_mode)
+
         self._bat.setText(str(lib_config.data.get('bat_output_path', '')))
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
         self._rate_limit.setValue(lib_config.data.get('rate_limit', 0.25))
 
         self._rebuild_providers(mt, lib_config)
+
+    def _on_scan_mode_changed(self, mode: str):
+        files_mode = (mode == 'files')
+        self._file_extensions.setVisible(files_mode)
+        self._ext_row_label.setVisible(files_mode)
 
     def _rebuild_providers(self, media_type: str, lib_config):
         # Clear existing provider widgets
@@ -265,6 +289,11 @@ class SettingsPage(QWidget):
         data['source_folder']    = src
         data['destination_base'] = dst
         data['organize_enabled'] = self._organize_enabled.isChecked()
+        data['scan_mode']        = self._scan_mode.currentText()
+        raw_exts = self._file_extensions.text()
+        data['file_extensions']  = [
+            e.strip() for e in raw_exts.split(',') if e.strip()
+        ]
         data['bat_output_path']  = self._bat.text().strip()
         data['items_per_page']   = self._items_per_page.value()
         data['rate_limit']       = self._rate_limit.value()
