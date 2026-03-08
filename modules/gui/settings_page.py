@@ -225,6 +225,16 @@ class SettingsPage(QWidget):
         self._ext_row_label.setVisible(files_mode)
 
     def _rebuild_providers(self, media_type: str, lib_config):
+        # Abort any in-progress test workers before destroying their label widgets
+        for w in getattr(self, '_test_workers', []):
+            try:
+                w.result.disconnect()
+            except Exception:
+                pass
+            w.quit()
+            w.wait(500)
+        self._test_workers = []
+
         # Clear existing provider widgets
         while self._providers_layout.count():
             item = self._providers_layout.takeAt(0)
@@ -328,11 +338,14 @@ class SettingsPage(QWidget):
         self._test_workers.append(worker)
 
         def on_result(success: bool, message: str):
-            status_lbl.setText(('✓ ' if success else '✗ ') + message)
-            status_lbl.setStyleSheet(
-                'color: #10b981;' if success else 'color: #ef4444;'
-            )
-            btn.setEnabled(True)
+            try:
+                status_lbl.setText(('✓ ' if success else '✗ ') + message)
+                status_lbl.setStyleSheet(
+                    'color: #10b981;' if success else 'color: #ef4444;'
+                )
+                btn.setEnabled(True)
+            except RuntimeError:
+                pass  # Widget deleted (library switched) while test was running
             if worker in self._test_workers:
                 self._test_workers.remove(worker)
 
