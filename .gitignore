@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .env
 config/ui_state.json
+config/libraries/*.json
 data/
 *.log
 backup/

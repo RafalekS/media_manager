@@ -3,13 +3,21 @@
   "name": "Movies",
   "media_type": "movies",
   "source_folder": "",
-  "destination_base": "Y:\\Multimedia\\Filmy",
+  "destination_base": "",
   "organize_enabled": true,
   "scan_mode": "folders",
-  "file_extensions": [".mkv", ".mp4", ".avi", ".m4v"],
+  "file_extensions": [
+    ".mkv",
+    ".mp4",
+    ".avi",
+    ".m4v"
+  ],
   "data_folder": "data/movies",
   "primary_provider": "tmdb",
-  "supplement_providers": ["omdb", "trakt"],
+  "supplement_providers": [
+    "omdb",
+    "trakt"
+  ],
   "genre_file": "config/libraries/movies_genres.json",
   "html_filename": "movies_database_dynamic.html",
   "items_per_page": 50,

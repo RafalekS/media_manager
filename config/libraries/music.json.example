@@ -3,13 +3,23 @@
   "name": "Music",
   "media_type": "music",
   "source_folder": "",
-  "destination_base": "Y:\\Music",
+  "destination_base": "",
   "organize_enabled": false,
   "scan_mode": "folders",
-  "file_extensions": [".mp3", ".flac", ".m4a", ".ogg", ".wav", ".aac"],
+  "file_extensions": [
+    ".mp3",
+    ".flac",
+    ".m4a",
+    ".ogg",
+    ".wav",
+    ".aac"
+  ],
   "data_folder": "data/music",
   "primary_provider": "musicbrainz",
-  "supplement_providers": ["lastfm", "discogs"],
+  "supplement_providers": [
+    "lastfm",
+    "discogs"
+  ],
   "genre_file": "config/libraries/music_genres.json",
   "html_filename": "music_database_dynamic.html",
   "items_per_page": 50,

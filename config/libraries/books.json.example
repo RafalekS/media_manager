@@ -3,13 +3,22 @@
   "name": "Books",
   "media_type": "books",
   "source_folder": "",
-  "destination_base": "Y:\\Kindle",
+  "destination_base": "",
   "organize_enabled": false,
   "scan_mode": "files",
-  "file_extensions": [".epub", ".pdf", ".mobi", ".azw3", ".azw"],
+  "file_extensions": [
+    ".epub",
+    ".pdf",
+    ".mobi",
+    ".azw3",
+    ".azw"
+  ],
   "data_folder": "data/books",
   "primary_provider": "google_books",
-  "supplement_providers": ["open_library", "internet_archive"],
+  "supplement_providers": [
+    "open_library",
+    "internet_archive"
+  ],
   "genre_file": "config/libraries/books_genres.json",
   "html_filename": "books_database_dynamic.html",
   "items_per_page": 50,

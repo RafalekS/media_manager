@@ -6,10 +6,18 @@
   "destination_base": "",
   "organize_enabled": true,
   "scan_mode": "files",
-  "file_extensions": [".cbz", ".cbr", ".pdf", ".epub"],
+  "file_extensions": [
+    ".cbz",
+    ".cbr",
+    ".pdf",
+    ".epub"
+  ],
   "data_folder": "data/comics",
   "primary_provider": "comic_vine",
-  "supplement_providers": ["mangadex", "marvel"],
+  "supplement_providers": [
+    "mangadex",
+    "marvel"
+  ],
   "genre_file": "config/libraries/comics_genres.json",
   "html_filename": "comics_database_dynamic.html",
   "items_per_page": 50,

@@ -2,22 +2,25 @@
   "enabled": true,
   "name": "Games",
   "media_type": "games",
-  "source_folder": "Y:\\Gry\\New\\",
-  "destination_base": "Y:\\Gry\\",
+  "source_folder": "",
+  "destination_base": "",
   "organize_enabled": true,
   "scan_mode": "folders",
   "file_extensions": [],
   "data_folder": "data/games",
   "primary_provider": "igdb",
-  "supplement_providers": ["rawg", "giantbomb"],
+  "supplement_providers": [
+    "rawg",
+    "giantbomb"
+  ],
   "genre_file": "config/libraries/games_genres.json",
   "html_filename": "games_database_dynamic.html",
   "items_per_page": 50,
   "bat_output_path": "",
   "rate_limit": 0.25,
   "api": {
-    "client_id": "pnhx9s4mv07uhd64hvh2kgvn9urahk",
-    "client_secret": "gpp4r59gvp28x6dpz4o10a4zp4lma9",
+    "client_id": "",
+    "client_secret": "",
     "api_key": "",
     "giantbomb_api_key": ""
   }
