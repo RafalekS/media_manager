@@ -40,14 +40,20 @@ class GoogleBooksProvider(MetadataProvider):
                     print(f'[GoogleBooks] Rate limited — waiting {wait}s before retry...')
                     time.sleep(wait)
                     continue
+                if r.status_code == 503:
+                    wait = 10 * (attempt + 1)
+                    print(f'[GoogleBooks] Service unavailable — waiting {wait}s before retry...')
+                    time.sleep(wait)
+                    continue
                 r.raise_for_status()
                 return r.json().get('items', [])
-            except requests.HTTPError:
-                raise
+            except requests.HTTPError as e:
+                print(f'[GoogleBooks] HTTP error: {e}')
+                return []
             except Exception as e:
                 print(f'[GoogleBooks] Search error: {e}')
                 return []
-        print('[GoogleBooks] Gave up after 3 rate-limit retries.')
+        print('[GoogleBooks] Gave up after 3 retries.')
         return []
 
     def get_details(self, item_id) -> dict:

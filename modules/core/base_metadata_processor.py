@@ -56,9 +56,10 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
     for sup in supplements:
         sup.authenticate()
 
-    total   = len(scan_list)
-    done    = 0
-    skipped = 0
+    total        = len(scan_list)
+    done         = 0
+    skipped      = 0
+    save_every   = 25  # save progress to disk every N items
 
     for entry in scan_list:
         if stop_fn and stop_fn():
@@ -79,7 +80,11 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
         done += 1
         print(f'[{done}/{total}] Looking up: {clean_name}')
 
-        result = _query_with_supplements(primary, supplements, clean_name)
+        try:
+            result = _query_with_supplements(primary, supplements, clean_name)
+        except Exception as e:
+            print(f'[Metadata] Provider error for {clean_name!r}: {e} — skipping.')
+            result = None
 
         if result:
             result['original_name'] = original_name
@@ -100,6 +105,11 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
                 'display_name':  clean_name,
             }
             print(f'       Not found.')
+
+        # Periodic save — prevents losing everything on crash/stop
+        if done % save_every == 0:
+            save_metadata_progress(progress, meta_file)
+            print(f'[Metadata] Progress saved ({done}/{total})')
 
         # Rate limiting — respects per-library setting
         time.sleep(lib_config.data.get('rate_limit', 0.25))
