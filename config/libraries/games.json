@@ -4,6 +4,7 @@
   "media_type": "games",
   "source_folder": "Y:\\Gry\\New\\",
   "destination_base": "Y:\\Gry\\",
+  "organize_enabled": true,
   "data_folder": "data/games",
   "primary_provider": "igdb",
   "supplement_providers": ["rawg", "giantbomb"],

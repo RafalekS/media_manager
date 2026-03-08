@@ -3,7 +3,8 @@
   "name": "Movies",
   "media_type": "movies",
   "source_folder": "",
-  "destination_base": "",
+  "destination_base": "Y:\\Multimedia\\Filmy",
+  "organize_enabled": true,
   "data_folder": "data/movies",
   "primary_provider": "tmdb",
   "supplement_providers": ["omdb", "trakt"],
@@ -11,6 +12,7 @@
   "html_filename": "movies_database_dynamic.html",
   "items_per_page": 50,
   "bat_output_path": "",
+  "rate_limit": 0.25,
   "api": {
     "tmdb_api_key": "",
     "omdb_api_key": "",

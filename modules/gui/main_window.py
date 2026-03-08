@@ -426,7 +426,17 @@ class MainWindow(QMainWindow):
         self._rebuild_browser_page()
         self._settings_page.load_library(self._lib_config)
         self._refresh_dashboard()
+        self._update_organize_nav()
         self._status_bar.showMessage(f'Library: {self._plugin.name}')
+
+    def _update_organize_nav(self):
+        """Enable/disable the Organize nav item based on the current library's organize_enabled flag."""
+        enabled = self._lib_config.data.get('organize_enabled', True)
+        item = self._nav.item(_PAGE_ORGANIZE)
+        if enabled:
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        else:
+            item.setFlags(item.flags() & ~(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable))
 
     def _rebuild_browser_page(self):
         from modules.gui.library_browser import LibraryBrowser

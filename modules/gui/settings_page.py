@@ -95,6 +95,9 @@ class SettingsPage(QWidget):
         self._dest = QLineEdit()
         paths_form.addRow('Destination Base:', self._path_row(self._dest, folder=True))
 
+        self._organize_enabled = QCheckBox('Enable Organize step (requires separate Source folder)')
+        paths_form.addRow('', self._organize_enabled)
+
         self._bat = QLineEdit()
         self._bat.setPlaceholderText('(leave blank = destination base)')
         paths_form.addRow('Script Output Path:', self._path_row(self._bat, folder=False))
@@ -170,6 +173,7 @@ class SettingsPage(QWidget):
 
         self._src.setText(str(lib_config.data.get('source_folder', '')))
         self._dest.setText(str(lib_config.data.get('destination_base', '')))
+        self._organize_enabled.setChecked(lib_config.data.get('organize_enabled', True))
         self._bat.setText(str(lib_config.data.get('bat_output_path', '')))
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
@@ -254,12 +258,13 @@ class SettingsPage(QWidget):
 
         src = self._src.text().strip()
         dst = self._dest.text().strip()
-        if not src or not dst:
-            QMessageBox.warning(self, 'Validation', 'Source Folder and Destination Base are required.')
+        if not dst:
+            QMessageBox.warning(self, 'Validation', 'Destination Base is required.')
             return
 
         data['source_folder']    = src
         data['destination_base'] = dst
+        data['organize_enabled'] = self._organize_enabled.isChecked()
         data['bat_output_path']  = self._bat.text().strip()
         data['items_per_page']   = self._items_per_page.value()
         data['rate_limit']       = self._rate_limit.value()

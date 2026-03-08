@@ -4,6 +4,7 @@
   "media_type": "comics",
   "source_folder": "",
   "destination_base": "",
+  "organize_enabled": true,
   "data_folder": "data/comics",
   "primary_provider": "comic_vine",
   "supplement_providers": ["mangadex", "marvel"],
@@ -11,6 +12,7 @@
   "html_filename": "comics_database_dynamic.html",
   "items_per_page": 50,
   "bat_output_path": "",
+  "rate_limit": 1.0,
   "api": {
     "comic_vine_api_key": "",
     "marvel_public_key": "",
