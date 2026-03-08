@@ -50,6 +50,22 @@ class MetadataProvider(ABC):
         Must always return a dict (never None), defaulting missing fields.
         """
 
+    def test_connection(self) -> tuple[bool, str]:
+        """
+        Quick connectivity check — used by the Settings Test button.
+        Returns (success, message). Must NOT retry or sleep on rate limits.
+        Default: authenticate then a single search for 'test'.
+        Override in providers that need custom behaviour.
+        """
+        try:
+            self.authenticate()
+            results = self.search('test')
+            if results is not None:
+                return True, f'OK — got {len(results)} result(s)'
+            return False, 'Search returned None'
+        except Exception as e:
+            return False, str(e)
+
     def search_and_extract(self, query: str) -> dict | None:
         """
         Convenience: search → get first result → extract.

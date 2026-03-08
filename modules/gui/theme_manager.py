@@ -347,14 +347,14 @@ QPushButton#btn_danger {{
 QPushButton#btn_danger:hover {{ background-color: {t['danger_hover']}; }}
 
 /* ── Inputs ───────────────────────────────────────────────────────── */
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
+QLineEdit, QComboBox {{
     background: {t['input_bg']};
     border: 1px solid {t['input_border']};
     border-radius: 2px;
     padding: 5px 9px;
     color: {t['input_fg']};
 }}
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+QLineEdit:focus, QComboBox:focus {{
     border-color: {t['input_focus']};
 }}
 QComboBox::drop-down {{ border: none; padding-right: 6px; }}
@@ -364,6 +364,49 @@ QComboBox QAbstractItemView {{
     color: {t['text_primary']};
     selection-background-color: {t['accent']};
     selection-color: {t['accent_text']};
+}}
+
+/* ── SpinBox — separate so up/down buttons stay visible ───────────── */
+QSpinBox, QDoubleSpinBox {{
+    background: {t['input_bg']};
+    border: 1px solid {t['input_border']};
+    border-radius: 2px;
+    padding: 4px 4px 4px 9px;
+    color: {t['input_fg']};
+}}
+QSpinBox:focus, QDoubleSpinBox:focus {{
+    border-color: {t['input_focus']};
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 22px;
+    border-left: 1px solid {t['input_border']};
+    border-bottom: 1px solid {t['input_border']};
+    background: {t['input_bg']};
+    border-top-right-radius: 2px;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 22px;
+    border-left: 1px solid {t['input_border']};
+    background: {t['input_bg']};
+    border-bottom-right-radius: 2px;
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {t['input_focus']};
+}}
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {{
+    background: {t['accent_pressed']};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    width: 8px; height: 8px;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    width: 8px; height: 8px;
 }}
 
 /* ── Tables ───────────────────────────────────────────────────────── */

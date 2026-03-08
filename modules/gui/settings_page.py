@@ -27,15 +27,8 @@ class _TestWorker(QThread):
             from modules.providers import get_provider_class
             cls      = get_provider_class(self._provider_id)
             provider = cls(self._api_config)
-            ok = provider.authenticate()
-            if ok is False:
-                self.result.emit(False, 'Authentication failed')
-                return
-            results = provider.search('test')
-            if results is not None:
-                self.result.emit(True, f'OK — got {len(results)} result(s)')
-            else:
-                self.result.emit(False, 'Search returned None')
+            success, message = provider.test_connection()
+            self.result.emit(success, message)
         except Exception as e:
             self.result.emit(False, str(e))
 

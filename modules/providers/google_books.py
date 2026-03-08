@@ -112,6 +112,21 @@ class GoogleBooksProvider(MetadataProvider):
             'slug':         volume_id,
         }
 
+    def test_connection(self) -> tuple[bool, str]:
+        """Single non-retried request — avoids the 60s/120s retry waits."""
+        try:
+            params = self._params({'q': 'python programming', 'maxResults': 1, 'printType': 'books'})
+            r = requests.get(f'{self._API_URL}/volumes', params=params, timeout=10)
+            if r.status_code == 429:
+                return False, '429 Rate limited — quota exceeded (try adding/checking your API key)'
+            if r.status_code == 403:
+                return False, '403 Forbidden — invalid API key'
+            r.raise_for_status()
+            items = r.json().get('items', [])
+            return True, f'OK — got {len(items)} result(s)'
+        except Exception as e:
+            return False, str(e)
+
     def search_and_extract(self, query: str) -> dict:
         results = self.search(query)
         if not results:
