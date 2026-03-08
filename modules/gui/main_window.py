@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
                 card.apply_theme(t['card_bg'], t['card_border'])
 
     def _set_window_icon(self, theme: str):
+        from PyQt6.QtCore import QTimer
         dark_themes = {'Dark', 'Midnight', 'Slate'}
         if theme in dark_themes:
             icon_name = 'light_media_mgr.png'   # light icon on dark bg
@@ -150,8 +151,14 @@ class MainWindow(QMainWindow):
             icon_path = _ROOT / 'assets' / 'color_media_mgr.png'
         if icon_path.exists():
             icon = QIcon(str(icon_path))
-            self.setWindowIcon(icon)
-            QApplication.instance().setWindowIcon(icon)
+            # Clear first — Qt caches the previous icon on Windows
+            self.setWindowIcon(QIcon())
+            QApplication.instance().setWindowIcon(QIcon())
+            # Defer the actual set so the clear is processed first
+            QTimer.singleShot(50, lambda: (
+                self.setWindowIcon(icon),
+                QApplication.instance().setWindowIcon(icon),
+            ))
 
     # ──────────────────────────────────────────────────────────────────
     # Build UI
@@ -471,38 +478,35 @@ class MainWindow(QMainWindow):
         import json
 
         lib_name = self._plugin.name if self._plugin else ''
-        self._dash_lib_lbl.setText(
-            f'{self._plugin.icon} {lib_name}  |  '
-            f'Source: {self._lib_config.data.get("source_folder", "—")}  '
-            f'Destination: {self._lib_config.data.get("destination_base", "—")}'
-        ) if self._plugin else None
+        src  = self._lib_config.data.get('source_folder', '') or '—'
+        dest = self._lib_config.data.get('destination_base', '') or '—'
+        if self._plugin:
+            self._dash_lib_lbl.setText(
+                f'{self._plugin.icon} {lib_name}  |  Source: {src}  Destination: {dest}'
+            )
 
-        # Stats
-        for card in self._stat_cards:
-            card.set_value('…')
-
-        scanned = organized = found = failed = 0
+        # Read stats from JSON only — never scan the filesystem here (would freeze on large libraries)
+        scanned = found = failed = organized = 0
 
         scan_file = self._lib_config.scan_list_file
         if scan_file and Path(scan_file).exists():
-            with open(scan_file, 'r', encoding='utf-8') as f:
-                scanned = len(json.load(f))
+            try:
+                with open(scan_file, 'r', encoding='utf-8') as f:
+                    scanned = len(json.load(f))
+            except Exception:
+                pass
 
         meta_file = self._lib_config.metadata_file
         if meta_file and Path(meta_file).exists():
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                meta = json.load(f)
-            items = meta.get('processed_items', meta.get('processed_games', {}))
-            found  = sum(1 for v in items.values() if v.get('igdb_found') or v.get('found'))
-            failed = len(items) - found
-
-        dest = self._lib_config.destination_base
-        if dest and Path(dest).exists():
-            skip = set(getattr(self._lib_config, 'skip_folders', []))
-            skip.add('new')
-            for d in Path(dest).iterdir():
-                if d.is_dir() and d.name.lower() not in skip:
-                    organized += sum(1 for x in d.iterdir() if x.is_dir())
+            try:
+                with open(meta_file, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                items = meta.get('processed_items', meta.get('processed_games', {}))
+                found     = sum(1 for v in items.values() if v.get('igdb_found') or v.get('found'))
+                failed    = len(items) - found
+                organized = sum(1 for v in items.values() if (v.get('igdb_found') or v.get('found')) and v.get('genre'))
+            except Exception:
+                pass
 
         self._card_scanned.set_value(scanned)
         self._card_found.set_value(found)
@@ -512,7 +516,6 @@ class MainWindow(QMainWindow):
         html_file = self._lib_config.html_file
         self._dash_btn_html.setVisible(bool(html_file and Path(html_file).exists()))
 
-        # Theme stat card colours
         t = _THEMES.get(self._global_config.theme, _THEMES['Light'])
         for card in self._stat_cards:
             card.apply_theme(t['card_bg'], t['card_border'])
