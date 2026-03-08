@@ -11,7 +11,33 @@ from PyQt6.QtWidgets import (
     QPushButton, QGroupBox, QScrollArea, QMessageBox,
     QFileDialog, QCheckBox, QFrame, QComboBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+
+
+class _TestWorker(QThread):
+    result = pyqtSignal(bool, str)  # success, message
+
+    def __init__(self, provider_id: str, api_config: dict):
+        super().__init__()
+        self._provider_id = provider_id
+        self._api_config  = api_config
+
+    def run(self):
+        try:
+            from modules.providers import get_provider_class
+            cls      = get_provider_class(self._provider_id)
+            provider = cls(self._api_config)
+            ok = provider.authenticate()
+            if ok is False:
+                self.result.emit(False, 'Authentication failed')
+                return
+            results = provider.search('test')
+            if results is not None:
+                self.result.emit(True, f'OK — got {len(results)} result(s)')
+            else:
+                self.result.emit(False, 'Search returned None')
+        except Exception as e:
+            self.result.emit(False, str(e))
 
 
 # All providers per library:
@@ -248,7 +274,7 @@ class SettingsPage(QWidget):
             hdr.addStretch()
             frame_lay.addLayout(hdr)
 
-            # API key fields
+            # API key fields + Test button
             field_widgets = {}
             if api_fields:
                 form = QFormLayout()
@@ -261,6 +287,26 @@ class SettingsPage(QWidget):
                     form.addRow(f'{label}:', edit)
                     field_widgets[key] = edit
                 frame_lay.addLayout(form)
+
+                # Test button row
+                test_row = QHBoxLayout()
+                test_row.setContentsMargins(16, 2, 0, 0)
+                btn_test   = QPushButton('Test Connection')
+                btn_test.setSizePolicy(btn_test.sizePolicy().horizontalPolicy(),
+                                       btn_test.sizePolicy().verticalPolicy())
+                test_lbl   = QLabel('')
+                test_lbl.setProperty('role', 'muted')
+                test_row.addWidget(btn_test)
+                test_row.addWidget(test_lbl)
+                test_row.addStretch()
+                frame_lay.addLayout(test_row)
+
+                # Capture loop vars for the lambda
+                btn_test.clicked.connect(
+                    lambda _checked, pid=provider_id, fw=field_widgets,
+                           lbl=test_lbl, btn=btn_test:
+                    self._test_provider(pid, fw, lbl, btn)
+                )
             else:
                 no_key = QLabel('No API key required')
                 no_key.setProperty('role', 'muted')
@@ -272,6 +318,33 @@ class SettingsPage(QWidget):
                 'chk':    chk,
                 'fields': field_widgets,
             }
+
+    # ──────────────────────────────────────────────────────────────────
+    def _test_provider(self, provider_id: str, field_widgets: dict,
+                       status_lbl: QLabel, btn: QPushButton):
+        # Build api_config from current (unsaved) field values
+        api_config = {k: w.text().strip() for k, w in field_widgets.items()}
+
+        status_lbl.setText('Testing...')
+        status_lbl.setStyleSheet('')
+        btn.setEnabled(False)
+
+        worker = _TestWorker(provider_id, api_config)
+        # Keep a reference so it isn't GC'd before it finishes
+        self._test_workers = getattr(self, '_test_workers', [])
+        self._test_workers.append(worker)
+
+        def on_result(success: bool, message: str):
+            status_lbl.setText(('✓ ' if success else '✗ ') + message)
+            status_lbl.setStyleSheet(
+                'color: #10b981;' if success else 'color: #ef4444;'
+            )
+            btn.setEnabled(True)
+            if worker in self._test_workers:
+                self._test_workers.remove(worker)
+
+        worker.result.connect(on_result)
+        worker.start()
 
     # ──────────────────────────────────────────────────────────────────
     def _save(self):
