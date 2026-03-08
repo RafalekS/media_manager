@@ -17,8 +17,8 @@ class TMDBProvider(MetadataProvider):
 
     def __init__(self, api_config: dict):
         super().__init__(api_config)
-        self._api_key     = api_config.get('api_key', '')
-        self._access_token = api_config.get('access_token', '')
+        self._api_key     = api_config.get('tmdb_api_key', '')
+        self._access_token = api_config.get('tmdb_access_token', '')
 
     def authenticate(self) -> bool:
         return bool(self._api_key or self._access_token)

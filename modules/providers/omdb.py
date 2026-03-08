@@ -16,7 +16,7 @@ class OMDBProvider(MetadataProvider):
 
     def __init__(self, api_config: dict):
         super().__init__(api_config)
-        self._api_key = api_config.get('api_key', '')
+        self._api_key = api_config.get('omdb_api_key', '')
 
     def authenticate(self) -> bool:
         return bool(self._api_key)
