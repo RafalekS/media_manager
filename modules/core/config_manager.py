@@ -62,14 +62,20 @@ class GlobalConfig:
         return self.get_path('libraries_folder')
 
     def available_libraries(self) -> list[str]:
-        """Return list of media_type keys that have a config file."""
+        """Return media_type keys that have a config file (*.json or *.json.example)."""
         folder = self.libraries_folder()
         if not folder.exists():
             return []
-        return [
-            f.stem for f in sorted(folder.glob('*.json'))
-            if not f.stem.endswith('_genres')
-        ]
+        stems = set()
+        for f in folder.glob('*.json'):
+            if not f.stem.endswith('_genres'):
+                stems.add(f.stem)
+        for f in folder.glob('*.json.example'):
+            # Path("games.json.example").stem == "games.json" → strip again
+            stem = Path(f.stem).stem
+            if not stem.endswith('_genres'):
+                stems.add(stem)
+        return sorted(stems)
 
 
 class LibraryConfig:
