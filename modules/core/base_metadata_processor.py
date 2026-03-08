@@ -93,8 +93,8 @@ def process_metadata(lib_config, plugin):
             }
             print(f'       Not found.')
 
-        # Rate limiting — be polite to APIs
-        time.sleep(0.25)
+        # Rate limiting — respects per-library setting
+        time.sleep(lib_config.data.get('rate_limit', 0.25))
 
     save_metadata_progress(progress, meta_file)
     found_total = sum(1 for v in items.values() if v.get('found') or v.get('igdb_found'))

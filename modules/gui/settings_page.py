@@ -1,6 +1,5 @@
 """
-Settings page — per-library paths, API keys, HTML options.
-Reloads when the active library changes.
+Settings page — per-library paths, providers (enable/disable + API keys), rate limit, HTML options.
 """
 
 import json
@@ -8,43 +7,51 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLabel, QLineEdit, QSpinBox, QPushButton, QGroupBox,
-    QScrollArea, QMessageBox, QFileDialog,
+    QLabel, QLineEdit, QSpinBox, QDoubleSpinBox,
+    QPushButton, QGroupBox, QScrollArea, QMessageBox,
+    QFileDialog, QCheckBox, QFrame,
 )
+from PyQt6.QtCore import Qt
 
-# API fields per library: (json_key, display_label, is_secret)
-_LIBRARY_API_FIELDS = {
+
+# All providers per library:
+# (provider_id, display_name, is_primary, [(api_key, label, is_secret), ...])
+_LIBRARY_PROVIDERS = {
     'games': [
-        ('client_id',        'IGDB Client ID',      False),
-        ('client_secret',    'IGDB Client Secret',  True),
-        ('api_key',          'RAWG API Key',         True),
-        ('giantbomb_api_key','Giant Bomb API Key',   True),
+        ('igdb',       'IGDB',        True,  [
+            ('client_id',     'Client ID',     False),
+            ('client_secret', 'Client Secret', True),
+        ]),
+        ('rawg',       'RAWG',        False, [
+            ('api_key',       'API Key',        True),
+        ]),
+        ('giantbomb',  'Giant Bomb',  False, [
+            ('giantbomb_api_key', 'API Key',    True),
+        ]),
     ],
     'movies': [
-        ('tmdb_api_key',    'TMDB API Key',         True),
-        ('omdb_api_key',    'OMDB API Key',          True),
-        ('trakt_client_id', 'Trakt Client ID',       True),
+        ('tmdb',   'TMDB',   True,  [('tmdb_api_key',   'API Key',   True)]),
+        ('omdb',   'OMDB',   False, [('omdb_api_key',   'API Key',   True)]),
+        ('trakt',  'Trakt',  False, [('trakt_client_id','Client ID', True)]),
     ],
     'books': [
-        ('google_books_api_key', 'Google Books API Key', True),
-        # Open Library + Internet Archive need no keys
+        ('google_books',     'Google Books',     True,  [('google_books_api_key', 'API Key', True)]),
+        ('open_library',     'Open Library',     False, []),
+        ('internet_archive', 'Internet Archive', False, []),
     ],
     'comics': [
-        ('comic_vine_api_key',  'Comic Vine API Key',    True),
-        ('marvel_public_key',   'Marvel Public Key',     False),
-        ('marvel_private_key',  'Marvel Private Key',    True),
+        ('comic_vine', 'Comic Vine', True,  [('comic_vine_api_key',  'API Key',      True)]),
+        ('mangadex',   'MangaDex',   False, []),
+        ('marvel',     'Marvel',     False, [
+            ('marvel_public_key',  'Public Key',  False),
+            ('marvel_private_key', 'Private Key', True),
+        ]),
     ],
     'music': [
-        ('lastfm_api_key',  'Last.fm API Key',   True),
-        ('discogs_token',   'Discogs Token',      True),
-        # MusicBrainz needs no key
+        ('musicbrainz', 'MusicBrainz', True,  []),
+        ('lastfm',      'Last.fm',     False, [('lastfm_api_key', 'API Key', True)]),
+        ('discogs',     'Discogs',     False, [('discogs_token',  'Token',   True)]),
     ],
-}
-
-_LIBRARY_API_NOTES = {
-    'books':  'Open Library and Internet Archive require no API keys.',
-    'music':  'MusicBrainz requires no API key.',
-    'comics': 'MangaDex requires no API key.',
 }
 
 
@@ -52,12 +59,13 @@ class SettingsPage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._lib_config  = None
-        self._api_widgets = {}
-        self._api_grp     = None
-        self._api_form    = None
+        self._lib_config       = None
+        self._provider_widgets = {}   # provider_id -> {'chk': QCheckBox, 'fields': {key: QLineEdit}}
+        self._providers_grp    = None
+        self._providers_layout = None
         self._setup_ui()
 
+    # ──────────────────────────────────────────────────────────────────
     def _setup_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -97,10 +105,24 @@ class SettingsPage(QWidget):
 
         self._layout.addWidget(paths_grp)
 
-        # ── API Keys (rebuilt per library) ───────────────────────────
-        self._api_grp  = QGroupBox('API Keys')
-        self._api_form = QFormLayout(self._api_grp)
-        self._layout.addWidget(self._api_grp)
+        # ── Providers (rebuilt per library) ──────────────────────────
+        self._providers_grp = QGroupBox('Metadata Providers')
+        self._providers_layout = QVBoxLayout(self._providers_grp)
+        self._layout.addWidget(self._providers_grp)
+
+        # ── Rate limit ───────────────────────────────────────────────
+        rl_grp = QGroupBox('Rate Limiting')
+        rl_form = QFormLayout(rl_grp)
+
+        self._rate_limit = QDoubleSpinBox()
+        self._rate_limit.setRange(0.1, 10.0)
+        self._rate_limit.setSingleStep(0.1)
+        self._rate_limit.setDecimals(1)
+        self._rate_limit.setValue(0.25)
+        self._rate_limit.setSuffix(' s between requests')
+        rl_form.addRow('Rate limit:', self._rate_limit)
+
+        self._layout.addWidget(rl_grp)
 
         # ── HTML Options ─────────────────────────────────────────────
         html_grp = QGroupBox('HTML Options')
@@ -114,7 +136,7 @@ class SettingsPage(QWidget):
 
         self._layout.addWidget(html_grp)
 
-        # ── Buttons ──────────────────────────────────────────────────
+        # ── Save button ──────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_save = QPushButton('Save Settings')
         btn_save.clicked.connect(self._save)
@@ -144,50 +166,90 @@ class SettingsPage(QWidget):
     def load_library(self, lib_config):
         self._lib_config = lib_config
         mt = lib_config.media_type
-        self._lib_lbl.setText(
-            f'Active library: {mt.capitalize()}  —  '
-            f'Providers: {lib_config.primary_provider} + {", ".join(lib_config.supplement_providers)}'
-        )
+        self._lib_lbl.setText(f'Active library: {mt.capitalize()}')
 
         self._src.setText(str(lib_config.data.get('source_folder', '')))
         self._dest.setText(str(lib_config.data.get('destination_base', '')))
         self._bat.setText(str(lib_config.data.get('bat_output_path', '')))
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
+        self._rate_limit.setValue(lib_config.data.get('rate_limit', 0.25))
 
-        self._rebuild_api_fields(mt, lib_config.data.get('api', {}))
+        self._rebuild_providers(mt, lib_config)
 
-    def _rebuild_api_fields(self, media_type: str, api_data: dict):
-        while self._api_form.rowCount():
-            self._api_form.removeRow(0)
-        self._api_widgets.clear()
+    def _rebuild_providers(self, media_type: str, lib_config):
+        # Clear existing provider widgets
+        while self._providers_layout.count():
+            item = self._providers_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._provider_widgets.clear()
 
-        note = _LIBRARY_API_NOTES.get(media_type, '')
-        if note:
-            lbl = QLabel(note)
-            lbl.setProperty('role', 'muted')
-            self._api_form.addRow(lbl)
+        api_data     = lib_config.data.get('api', {})
+        supplements  = lib_config.data.get('supplement_providers', [])
+        primary_id   = lib_config.data.get('primary_provider', '')
 
-        fields = _LIBRARY_API_FIELDS.get(media_type, [])
-        if not fields:
-            if not note:
-                lbl = QLabel('No API keys required for this library.')
-                lbl.setProperty('role', 'muted')
-                self._api_form.addRow(lbl)
-            return
+        providers = _LIBRARY_PROVIDERS.get(media_type, [])
 
-        for key, label, secret in fields:
-            edit = QLineEdit()
-            edit.setText(api_data.get(key, ''))
-            if secret:
-                edit.setEchoMode(QLineEdit.EchoMode.Password)
-            self._api_form.addRow(f'{label}:', edit)
-            self._api_widgets[key] = edit
+        for provider_id, display_name, is_primary, api_fields in providers:
+            frame = QFrame()
+            frame.setFrameShape(QFrame.Shape.StyledPanel)
+            frame_lay = QVBoxLayout(frame)
+            frame_lay.setContentsMargins(8, 6, 8, 6)
+            frame_lay.setSpacing(4)
+
+            # Header row: checkbox + name + badge
+            hdr = QHBoxLayout()
+
+            chk = QCheckBox(display_name)
+            chk.setStyleSheet('font-weight: bold;')
+            if is_primary:
+                chk.setChecked(True)
+                chk.setEnabled(False)   # primary always on
+            else:
+                chk.setChecked(provider_id in supplements)
+            hdr.addWidget(chk)
+
+            badge = QLabel('Primary' if is_primary else 'Supplement')
+            badge.setStyleSheet(
+                'color: white; background: #2563eb; padding: 1px 6px; border-radius: 2px; font-size: 8pt;'
+                if is_primary else
+                'color: white; background: #64748b; padding: 1px 6px; border-radius: 2px; font-size: 8pt;'
+            )
+            hdr.addWidget(badge)
+            hdr.addStretch()
+            frame_lay.addLayout(hdr)
+
+            # API key fields
+            field_widgets = {}
+            if api_fields:
+                form = QFormLayout()
+                form.setContentsMargins(16, 0, 0, 0)
+                for key, label, secret in api_fields:
+                    edit = QLineEdit()
+                    edit.setText(api_data.get(key, ''))
+                    if secret:
+                        edit.setEchoMode(QLineEdit.EchoMode.Password)
+                    form.addRow(f'{label}:', edit)
+                    field_widgets[key] = edit
+                frame_lay.addLayout(form)
+            else:
+                no_key = QLabel('No API key required')
+                no_key.setProperty('role', 'muted')
+                no_key.setContentsMargins(16, 0, 0, 0)
+                frame_lay.addWidget(no_key)
+
+            self._providers_layout.addWidget(frame)
+            self._provider_widgets[provider_id] = {
+                'chk':    chk,
+                'fields': field_widgets,
+            }
 
     # ──────────────────────────────────────────────────────────────────
     def _save(self):
         if not self._lib_config:
             return
+
         data = self._lib_config.data
 
         src = self._src.text().strip()
@@ -200,14 +262,28 @@ class SettingsPage(QWidget):
         data['destination_base'] = dst
         data['bat_output_path']  = self._bat.text().strip()
         data['items_per_page']   = self._items_per_page.value()
+        data['rate_limit']       = self._rate_limit.value()
+
         html_fname = self._html_fname.text().strip()
         if html_fname:
             data['html_filename'] = html_fname
 
+        # Rebuild supplement_providers from checkboxes
+        supplements = []
         if 'api' not in data:
             data['api'] = {}
-        for key, edit in self._api_widgets.items():
-            data['api'][key] = edit.text().strip()
+
+        for provider_id, pw in self._provider_widgets.items():
+            chk = pw['chk']
+            # primary is always enabled (checkbox disabled), supplements by checkbox
+            is_primary = not chk.isEnabled()
+            if not is_primary and chk.isChecked():
+                supplements.append(provider_id)
+            # Save API key values regardless
+            for key, edit in pw['fields'].items():
+                data['api'][key] = edit.text().strip()
+
+        data['supplement_providers'] = supplements
 
         try:
             with open(self._lib_config.path, 'w', encoding='utf-8') as f:
@@ -217,6 +293,7 @@ class SettingsPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Failed to save:\n{e}')
 
+    # ──────────────────────────────────────────────────────────────────
     def _browse_folder(self, edit: QLineEdit):
         folder = QFileDialog.getExistingDirectory(self, 'Select Folder', edit.text())
         if folder:
