@@ -84,7 +84,13 @@ class LibraryConfig:
             self.path = _ROOT / 'config' / 'libraries' / f'{media_type_or_path}.json'
         self.root = _ROOT
         if not self.path.exists():
-            raise FileNotFoundError(f'Library config not found: {self.path}')
+            example = self.path.with_suffix('.json.example')
+            if example.exists():
+                import shutil
+                shutil.copy(example, self.path)
+                print(f'[INFO] Created {self.path.name} from example template.')
+            else:
+                raise FileNotFoundError(f'Library config not found: {self.path}')
         self.data = self._load()
 
     def _load(self) -> dict:
