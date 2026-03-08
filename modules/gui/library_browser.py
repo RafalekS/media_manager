@@ -25,21 +25,30 @@ class _LoadWorker(QThread):
         self._plugin     = plugin
 
     def run(self):
-        from modules.core.utils import scan_organized_items, enrich_with_metadata
+        import json
 
-        dest  = self._lib_config.destination_base
-        skip  = getattr(self._lib_config, 'skip_folders', [])
-        organized = scan_organized_items(dest, skip)
+        meta_file = Path(self._lib_config.metadata_file)
+        if not meta_file.exists():
+            self.done.emit([])
+            return
 
-        meta_file = self._lib_config.metadata_file
-        if Path(meta_file).exists():
-            enrich_with_metadata(organized, meta_file)
+        try:
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f'[ERROR] Failed to load metadata: {e}')
+            self.done.emit([])
+            return
 
-        # Flatten genre→[items] dict into a plain list
+        items = data.get('processed_items', data.get('processed_games', {}))
         flat = []
-        for items in organized.values():
-            flat.extend(items)
-
+        for entry in items.values():
+            e = dict(entry)
+            # Table col 0 ('name') = folder/original name
+            # plugin column 'display_name' = provider/matched name
+            e['name']         = entry.get('original_name') or entry.get('name', '')
+            e['display_name'] = entry.get('name', '')
+            flat.append(e)
         self.done.emit(flat)
 
 
