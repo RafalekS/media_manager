@@ -122,6 +122,17 @@ class SettingsPage(QWidget):
         self._scan_mode.currentTextChanged.connect(self._on_scan_mode_changed)
         paths_form.addRow('Scan mode:', self._scan_mode)
 
+        self._scan_depth = QSpinBox()
+        self._scan_depth.setRange(1, 5)
+        self._scan_depth.setValue(1)
+        self._scan_depth.setToolTip(
+            '1 = immediate subfolders (games, movies)\n'
+            '2 = Genre\\Artist level (music)\n'
+            '3 = Genre\\Artist\\Album level'
+        )
+        self._scan_depth_label = QLabel('Scan depth:')
+        paths_form.addRow(self._scan_depth_label, self._scan_depth)
+
         self._file_extensions = QLineEdit()
         self._file_extensions.setPlaceholderText('e.g. .mp3, .flac, .m4a  (comma-separated, only for Files mode)')
         self._ext_row_label = QLabel('File extensions:')
@@ -208,6 +219,7 @@ class SettingsPage(QWidget):
         self._scan_mode.blockSignals(True)
         self._scan_mode.setCurrentText(scan_mode)
         self._scan_mode.blockSignals(False)
+        self._scan_depth.setValue(lib_config.data.get('scan_depth', 1))
         exts = lib_config.data.get('file_extensions', [])
         self._file_extensions.setText(', '.join(exts))
         self._on_scan_mode_changed(scan_mode)
@@ -223,6 +235,8 @@ class SettingsPage(QWidget):
         files_mode = (mode == 'files')
         self._file_extensions.setVisible(files_mode)
         self._ext_row_label.setVisible(files_mode)
+        self._scan_depth.setVisible(not files_mode)
+        self._scan_depth_label.setVisible(not files_mode)
 
     def _rebuild_providers(self, media_type: str, lib_config):
         # Abort any in-progress test workers before destroying their label widgets
@@ -369,6 +383,7 @@ class SettingsPage(QWidget):
         data['destination_base'] = dst
         data['organize_enabled'] = self._organize_enabled.isChecked()
         data['scan_mode']        = self._scan_mode.currentText()
+        data['scan_depth']       = self._scan_depth.value()
         raw_exts = self._file_extensions.text()
         data['file_extensions']  = [
             e.strip() for e in raw_exts.split(',') if e.strip()

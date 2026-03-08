@@ -37,18 +37,21 @@ def process_scan(lib_config: LibraryConfig, plugin, force: bool = True) -> list[
 
     scan_mode  = lib_config.data.get('scan_mode', 'folders')
     extensions = [e.lower() for e in lib_config.data.get('file_extensions', [])]
+    scan_depth = lib_config.data.get('scan_depth', 1)
 
-    items = _scan_target(scan_target, plugin.clean_name, scan_mode, extensions)
+    items = _scan_target(scan_target, plugin.clean_name, scan_mode, extensions, depth=scan_depth)
     if items:
         save_scan_list(items, scan_file)
     return items
 
 
-def _scan_target(folder: str, clean_fn, scan_mode: str, extensions: list) -> list[dict]:
+def _scan_target(folder: str, clean_fn, scan_mode: str, extensions: list, depth: int = 1) -> list[dict]:
     """
     Scan a folder and return item dicts.
-    scan_mode='folders': each subdirectory is one item.
-    scan_mode='files':   each file matching extensions is one item.
+    scan_mode='folders': each subdirectory at `depth` levels is one item.
+                         depth=1: immediate children (games, movies)
+                         depth=2: grandchildren (Genre/Artist)
+    scan_mode='files':   recursive search for files matching extensions (depth ignored).
     """
     target = Path(folder)
     if not target.exists():
@@ -60,7 +63,7 @@ def _scan_target(folder: str, clean_fn, scan_mode: str, extensions: list) -> lis
 
     if scan_mode == 'files':
         ext_set = {e if e.startswith('.') else f'.{e}' for e in extensions}
-        for entry in sorted(target.iterdir()):
+        for entry in sorted(target.rglob('*')):
             if entry.is_file() and (not ext_set or entry.suffix.lower() in ext_set):
                 name = entry.stem
                 items.append({
@@ -70,14 +73,24 @@ def _scan_target(folder: str, clean_fn, scan_mode: str, extensions: list) -> lis
                     'name':          name,
                 })
     else:  # folders
-        for entry in sorted(target.iterdir()):
-            if entry.is_dir():
-                items.append({
-                    'original_name': entry.name,
-                    'clean_name':    clean_fn(entry.name),
-                    'folder_path':   str(entry),
-                    'name':          entry.name,
-                })
+        for entry in _collect_at_depth(target, depth):
+            items.append({
+                'original_name': entry.name,
+                'clean_name':    clean_fn(entry.name),
+                'folder_path':   str(entry),
+                'name':          entry.name,
+            })
 
     print(f'[OK] Found {len(items)} {scan_mode}')
     return items
+
+
+def _collect_at_depth(root: Path, depth: int) -> list[Path]:
+    """Return all directories at exactly `depth` levels below root."""
+    if depth <= 1:
+        return sorted([p for p in root.iterdir() if p.is_dir()])
+    result = []
+    for child in sorted(root.iterdir()):
+        if child.is_dir():
+            result.extend(_collect_at_depth(child, depth - 1))
+    return result
