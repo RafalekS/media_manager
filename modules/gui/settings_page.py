@@ -235,8 +235,6 @@ class SettingsPage(QWidget):
         files_mode = (mode == 'files')
         self._file_extensions.setVisible(files_mode)
         self._ext_row_label.setVisible(files_mode)
-        self._scan_depth.setVisible(not files_mode)
-        self._scan_depth_label.setVisible(not files_mode)
 
     def _rebuild_providers(self, media_type: str, lib_config):
         # Abort any in-progress test workers before destroying their label widgets

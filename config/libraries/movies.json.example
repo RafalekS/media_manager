@@ -6,6 +6,7 @@
   "destination_base": "",
   "organize_enabled": true,
   "scan_mode": "folders",
+  "scan_depth": 2,
   "file_extensions": [
     ".mkv",
     ".mp4",

@@ -6,6 +6,7 @@
   "destination_base": "",
   "organize_enabled": false,
   "scan_mode": "files",
+  "scan_depth": 1,
   "file_extensions": [
     ".epub",
     ".pdf",

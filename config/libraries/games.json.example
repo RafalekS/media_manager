@@ -6,6 +6,7 @@
   "destination_base": "",
   "organize_enabled": true,
   "scan_mode": "folders",
+  "scan_depth": 1,
   "file_extensions": [],
   "data_folder": "data/games",
   "primary_provider": "igdb",
