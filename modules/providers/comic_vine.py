@@ -27,6 +27,10 @@ class ComicVineProvider(MetadataProvider):
             p.update(extra)
         return p
 
+    _HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    }
+
     def _get(self, endpoint: str, params: dict = None) -> dict:
         if not self._api_key:
             return {}
@@ -34,7 +38,7 @@ class ComicVineProvider(MetadataProvider):
             r = requests.get(
                 f'{self._API_URL}/{endpoint}',
                 params=self._params(params),
-                headers={'User-Agent': 'MediaManager/1.0'},
+                headers=self._HEADERS,
                 timeout=15,
             )
             r.raise_for_status()
@@ -91,6 +95,29 @@ class ComicVineProvider(MetadataProvider):
             'website_url':  '',
             'slug':         str(raw.get('id', '')),
         }
+
+    def test_connection(self) -> tuple[bool, str]:
+        """Use /types/ endpoint — lightweight, no search quota used."""
+        if not self._api_key:
+            return False, 'No API key configured'
+        try:
+            r = requests.get(
+                f'{self._API_URL}/types/',
+                params={'api_key': self._api_key, 'format': 'json'},
+                headers=self._HEADERS,
+                timeout=10,
+            )
+            if r.status_code == 401:
+                return False, '401 Unauthorized — key invalid or not yet activated (check your email for activation link)'
+            if r.status_code == 403:
+                return False, '403 Forbidden — key rejected by server'
+            r.raise_for_status()
+            data = r.json()
+            if data.get('error') == 'OK':
+                return True, f'OK — connected ({len(data.get("results", []))} resource types)'
+            return False, f'API error: {data.get("error", "unknown")}'
+        except Exception as e:
+            return False, str(e)
 
     def search_and_extract(self, query: str) -> dict:
         results = self.search(query)
