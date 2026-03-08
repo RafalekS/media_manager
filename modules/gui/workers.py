@@ -23,13 +23,26 @@ def _redirect_stdout(stream):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-class ScanWorker(QThread):
+class _StoppableMixin:
+    """Mixin that adds a request_stop() method and should_stop() callable."""
+    def __init__(self):
+        self._stop_requested = False
+
+    def request_stop(self):
+        self._stop_requested = True
+
+    def should_stop(self) -> bool:
+        return self._stop_requested
+
+
+class ScanWorker(_StoppableMixin, QThread):
     """Scan source folder for new items."""
     progress = pyqtSignal(str)
-    finished = pyqtSignal(bool, str)   # success, message
+    finished = pyqtSignal(bool, str)
 
     def __init__(self, lib_config, plugin, stream, force=False):
-        super().__init__()
+        _StoppableMixin.__init__(self)
+        QThread.__init__(self)
         self._lib_config = lib_config
         self._plugin     = plugin
         self._stream     = stream
@@ -47,13 +60,14 @@ class ScanWorker(QThread):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-class MetadataWorker(QThread):
+class MetadataWorker(_StoppableMixin, QThread):
     """Fetch metadata from providers for all items in scan_list."""
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
 
     def __init__(self, lib_config, plugin, stream, full_collection: bool = False):
-        super().__init__()
+        _StoppableMixin.__init__(self)
+        QThread.__init__(self)
         self._lib_config      = lib_config
         self._plugin          = plugin
         self._stream          = stream
@@ -64,7 +78,8 @@ class MetadataWorker(QThread):
             try:
                 from modules.core.base_metadata_processor import process_metadata
                 process_metadata(self._lib_config, self._plugin,
-                                 full_collection=self._full_collection)
+                                 full_collection=self._full_collection,
+                                 stop_fn=self.should_stop)
                 self.finished.emit(True, 'Metadata fetch complete.')
             except Exception as e:
                 traceback.print_exc()

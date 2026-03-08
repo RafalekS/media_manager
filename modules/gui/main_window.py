@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self._stat_cards = []
         self._active_progress = None   # QProgressBar of the currently-running step
         self._active_run_btn  = None   # QPushButton to re-enable on finish
+        self._active_stop_btn = None   # Stop button to disable on finish
 
         self.setWindowTitle('Media Manager')
         self._apply_theme(global_config.theme)
@@ -404,10 +405,18 @@ class MainWindow(QMainWindow):
         grp_lay.addWidget(self._scan_path_lbl)
         lay.addWidget(grp)
 
+        btn_row = QHBoxLayout()
         btn = QPushButton('Scan Now')
         btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
         btn.clicked.connect(self._run_scan)
-        lay.addWidget(btn)
+        btn_row.addWidget(btn)
+        stop = QPushButton('Stop')
+        stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        stop.setEnabled(False)
+        stop.clicked.connect(self._stop_worker)
+        btn_row.addWidget(stop)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
 
         progress = QProgressBar()
         progress.setRange(0, 0)
@@ -415,6 +424,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(progress)
 
         page._run_btn  = btn
+        page._stop_btn = stop
         page._progress = progress
         lay.addStretch()
         return page
@@ -460,10 +470,18 @@ class MainWindow(QMainWindow):
         grp_lay.addWidget(warn)
         lay.addWidget(grp)
 
+        btn_row = QHBoxLayout()
         btn = QPushButton('Start Metadata Fetch')
         btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
         btn.clicked.connect(self._run_metadata)
-        lay.addWidget(btn)
+        btn_row.addWidget(btn)
+        stop = QPushButton('Stop')
+        stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        stop.setEnabled(False)
+        stop.clicked.connect(self._stop_worker)
+        btn_row.addWidget(stop)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
 
         progress = QProgressBar()
         progress.setRange(0, 0)
@@ -471,6 +489,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(progress)
 
         page._run_btn  = btn
+        page._stop_btn = stop
         page._progress = progress
         lay.addStretch()
         return page
@@ -492,10 +511,18 @@ class MainWindow(QMainWindow):
         desc.setWordWrap(True)
         lay.addWidget(desc)
 
+        btn_row = QHBoxLayout()
         btn = QPushButton(btn_label)
         btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
         btn.clicked.connect(action_slot)
-        lay.addWidget(btn)
+        btn_row.addWidget(btn)
+        stop = QPushButton('Stop')
+        stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        stop.setEnabled(False)
+        stop.clicked.connect(self._stop_worker)
+        btn_row.addWidget(stop)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
 
         progress = QProgressBar()
         progress.setRange(0, 0)
@@ -503,6 +530,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(progress)
 
         page._run_btn  = btn
+        page._stop_btn = stop
         page._progress = progress
         lay.addStretch()
         return page
@@ -683,8 +711,19 @@ class MainWindow(QMainWindow):
         if page and hasattr(page, '_progress'):
             self._active_progress = page._progress
             self._active_run_btn  = page._run_btn
+            self._active_stop_btn = getattr(page, '_stop_btn', None)
             page._progress.setVisible(True)
             page._run_btn.setEnabled(False)
+            if self._active_stop_btn:
+                self._active_stop_btn.setEnabled(True)
+
+    def _stop_worker(self):
+        if self._worker and self._worker.isRunning():
+            if hasattr(self._worker, 'request_stop'):
+                self._worker.request_stop()
+                self._status_bar.showMessage('Stopping — finishing current item...')
+            if self._active_stop_btn:
+                self._active_stop_btn.setEnabled(False)
 
     def _on_worker_finished(self, success: bool, message: str):
         self._status_bar.showMessage(('Done: ' if success else 'Error: ') + message)
@@ -694,6 +733,9 @@ class MainWindow(QMainWindow):
         if self._active_run_btn:
             self._active_run_btn.setEnabled(True)
             self._active_run_btn = None
+        if self._active_stop_btn:
+            self._active_stop_btn.setEnabled(False)
+            self._active_stop_btn = None
         self._refresh_dashboard()
 
     # ── Dialogs ───────────────────────────────────────────────────────

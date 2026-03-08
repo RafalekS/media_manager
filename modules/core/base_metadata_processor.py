@@ -12,7 +12,7 @@ from modules.core.utils import load_metadata_progress, save_metadata_progress
 from modules.providers import get_provider_class
 
 
-def process_metadata(lib_config, plugin, full_collection: bool = False):
+def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=None):
     """
     Fetch metadata for items not yet successfully processed.
     full_collection=True: scan destination folder for ALL items, not just scan_list.json.
@@ -61,6 +61,10 @@ def process_metadata(lib_config, plugin, full_collection: bool = False):
     skipped = 0
 
     for entry in scan_list:
+        if stop_fn and stop_fn():
+            print('[Metadata] Stopped by user. Saving progress...')
+            break
+
         original_name = entry.get('original_name', '')
         clean_name    = entry.get('clean_name', '') or plugin.clean_name(original_name)
 

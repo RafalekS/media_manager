@@ -5,6 +5,7 @@ Auth: API key (optional for basic searches, required for higher quota).
 Free tier: 1000 req/day without key, more with key.
 """
 
+import time
 import requests
 from modules.core.base_metadata import MetadataProvider
 
@@ -30,17 +31,24 @@ class GoogleBooksProvider(MetadataProvider):
         return p
 
     def search(self, query: str) -> list:
-        try:
-            r = requests.get(
-                f'{self._API_URL}/volumes',
-                params=self._params({'q': query, 'maxResults': 5, 'printType': 'books'}),
-                timeout=15,
-            )
-            r.raise_for_status()
-            return r.json().get('items', [])
-        except Exception as e:
-            print(f'[GoogleBooks] Search error: {e}')
-            return []
+        params = self._params({'q': query, 'maxResults': 5, 'printType': 'books'})
+        for attempt in range(3):
+            try:
+                r = requests.get(f'{self._API_URL}/volumes', params=params, timeout=15)
+                if r.status_code == 429:
+                    wait = 60 * (attempt + 1)
+                    print(f'[GoogleBooks] Rate limited — waiting {wait}s before retry...')
+                    time.sleep(wait)
+                    continue
+                r.raise_for_status()
+                return r.json().get('items', [])
+            except requests.HTTPError:
+                raise
+            except Exception as e:
+                print(f'[GoogleBooks] Search error: {e}')
+                return []
+        print('[GoogleBooks] Gave up after 3 rate-limit retries.')
+        return []
 
     def get_details(self, item_id) -> dict:
         try:
