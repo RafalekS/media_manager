@@ -591,6 +591,10 @@ class FailedItemsDialog(QDialog):
                 si.setText(f'Picked: {result.get("name", "")}')
                 si.setForeground(Qt.GlobalColor.darkGreen)
 
+            chk = self._table.item(row, self._COL_SEL)
+            if chk:
+                chk.setCheckState(Qt.CheckState.Unchecked)
+
         if self._pending_results:
             self._btn_save_found.setText(f'Save Found ({len(self._pending_results)})')
             self._btn_save_found.setVisible(True)
