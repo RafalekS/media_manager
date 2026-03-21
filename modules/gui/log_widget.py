@@ -43,7 +43,7 @@ class LogWidget(QWidget):
 
         toolbar = QHBoxLayout()
         lbl = QLabel("Log Output")
-        lbl.setStyleSheet("font-weight: bold; color: #555;")
+        lbl.setStyleSheet("font-weight: bold;")
         toolbar.addWidget(lbl)
         toolbar.addStretch()
 
@@ -64,13 +64,15 @@ class LogWidget(QWidget):
         font.setStyleHint(QFont.StyleHint.Monospace)
         self._text_edit.setFont(font)
         self._text_edit.setStyleSheet(
-            "QPlainTextEdit { background:#1e1e1e; color:#d4d4d4; "
-            "border:1px solid #444; border-radius:4px; padding:4px; }"
+            "QPlainTextEdit { border:1px solid #aaa; border-radius:4px; padding:4px; }"
         )
         layout.addWidget(self._text_edit)
 
     def _append_text(self, text: str):
-        self._text_edit.appendPlainText(text.rstrip('\n'))
+        stripped = text.rstrip('\n')
+        if not stripped:
+            return
+        self._text_edit.appendPlainText(stripped)
         if self._auto_scroll.isChecked():
             cursor = self._text_edit.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
