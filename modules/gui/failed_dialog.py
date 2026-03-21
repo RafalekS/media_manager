@@ -154,6 +154,7 @@ class FailedItemsDialog(QDialog):
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
         self._table.installEventFilter(self)
+        self._table.itemChanged.connect(self._on_item_changed)
 
         table_lay.addWidget(self._table)
         splitter.addWidget(table_w)
@@ -307,6 +308,12 @@ class FailedItemsDialog(QDialog):
         self._table.setColumnWidth(self._COL_LOCATION, 220)
         self._table.setColumnWidth(self._COL_STATUS,   140)
         self._table.setSortingEnabled(True)
+
+    def _on_item_changed(self, item):
+        if item.column() == self._COL_CLEAN:
+            chk = self._table.item(item.row(), self._COL_SEL)
+            if chk:
+                chk.setCheckState(Qt.CheckState.Checked)
 
     # ── State persistence ─────────────────────────────────────────────
     def _save_state(self):
