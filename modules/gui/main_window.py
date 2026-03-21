@@ -414,6 +414,14 @@ class MainWindow(QMainWindow):
         self._extract_delete.setChecked(True)
         grp_lay.addWidget(self._extract_delete)
 
+        self._extract_ssh = QCheckBox('Extract on QNAP via SSH (recommended for large archives)')
+        grp_lay.addWidget(self._extract_ssh)
+
+        self._extract_ssh_note = QLabel('SSH settings configured in Settings page.')
+        self._extract_ssh_note.setProperty('role', 'muted')
+        self._extract_ssh_note.setContentsMargins(20, 0, 0, 0)
+        grp_lay.addWidget(self._extract_ssh_note)
+
         lay.addWidget(grp)
 
         btn_row = QHBoxLayout()
@@ -752,9 +760,13 @@ class MainWindow(QMainWindow):
 
     # ── Workers ───────────────────────────────────────────────────────
     def _run_extract(self):
-        from modules.gui.workers import ExtractWorker
         delete_after = self._extract_delete.isChecked()
-        w = ExtractWorker(self._lib_config, self._log.stream, delete_after=delete_after)
+        if self._extract_ssh.isChecked():
+            from modules.gui.workers import ExtractSSHWorker
+            w = ExtractSSHWorker(self._lib_config, self._log.stream, delete_after=delete_after)
+        else:
+            from modules.gui.workers import ExtractWorker
+            w = ExtractWorker(self._lib_config, self._log.stream, delete_after=delete_after)
         self._start_worker(w, self._extract_page)
 
     def _run_scan(self):

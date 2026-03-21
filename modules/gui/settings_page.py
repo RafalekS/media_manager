@@ -159,6 +159,30 @@ class SettingsPage(QWidget):
         self._providers_layout = QVBoxLayout(self._providers_grp)
         self._layout.addWidget(self._providers_grp)
 
+        # ── QNAP SSH Extraction ──────────────────────────────────────
+        ssh_grp = QGroupBox('QNAP SSH Extraction (for large archives)')
+        ssh_form = QFormLayout(ssh_grp)
+
+        self._ssh_host = QLineEdit()
+        self._ssh_host.setPlaceholderText('e.g. 192.168.0.166')
+        ssh_form.addRow('SSH Host:', self._ssh_host)
+
+        self._ssh_user = QLineEdit()
+        self._ssh_user.setPlaceholderText('e.g. rls1203')
+        ssh_form.addRow('SSH User:', self._ssh_user)
+
+        self._ssh_source_path = QLineEdit()
+        self._ssh_source_path.setPlaceholderText('e.g. /share/CACHEDEV1_DATA/FULL/Gry/New')
+        ssh_form.addRow('Remote Source Path:', self._ssh_source_path)
+
+        self._ssh_script_path = QLineEdit()
+        self._ssh_script_path.setPlaceholderText(
+            'e.g. /share/homes/rls1203/scripts/extractor_silent.sh'
+        )
+        ssh_form.addRow('Script Path on NAS:', self._ssh_script_path)
+
+        self._layout.addWidget(ssh_grp)
+
         # ── Rate limit ───────────────────────────────────────────────
         rl_grp = QGroupBox('Rate Limiting')
         rl_form = QFormLayout(rl_grp)
@@ -231,6 +255,10 @@ class SettingsPage(QWidget):
         self._on_scan_mode_changed(scan_mode)
 
         self._extractor_path.setText(lib_config.data.get('extractor_path', '') or '')
+        self._ssh_host.setText(lib_config.data.get('ssh_host', '') or '')
+        self._ssh_user.setText(lib_config.data.get('ssh_user', '') or '')
+        self._ssh_source_path.setText(lib_config.data.get('ssh_source_path', '') or '')
+        self._ssh_script_path.setText(lib_config.data.get('ssh_script_path', '') or '')
         self._bat.setText(str(lib_config.data.get('bat_output_path', '')))
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
@@ -394,6 +422,10 @@ class SettingsPage(QWidget):
             e.strip() for e in raw_exts.split(',') if e.strip()
         ]
         data['extractor_path']   = self._extractor_path.text().strip()
+        data['ssh_host']         = self._ssh_host.text().strip()
+        data['ssh_user']         = self._ssh_user.text().strip()
+        data['ssh_source_path']  = self._ssh_source_path.text().strip()
+        data['ssh_script_path']  = self._ssh_script_path.text().strip()
         data['bat_output_path']  = self._bat.text().strip()
         data['items_per_page']   = self._items_per_page.value()
         data['rate_limit']       = self._rate_limit.value()

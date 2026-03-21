@@ -121,15 +121,33 @@ def _extract_with_tool(archive: Path, dest: Path,
     else:  # 7z
         cmd = [tool_path, 'x', str(archive), f'-o{dest}', '-y']
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        # No timeout — large archives (16GB+) can take a very long time
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             return True, ''
         err = (result.stderr or result.stdout).strip()
         return False, err or f'Exit code {result.returncode}'
-    except subprocess.TimeoutExpired:
-        return False, 'Timed out after 10 minutes'
     except Exception as e:
         return False, str(e)
+
+
+def _flatten_if_single_subdir(dest: Path):
+    """
+    If dest contains exactly one item and it is a directory (the archive
+    packaged its own folder inside), move all its contents up one level.
+    E.g. dest/The.King.is.Watching.v1.2/* → dest/*
+    """
+    try:
+        items = list(dest.iterdir())
+        if len(items) != 1 or not items[0].is_dir():
+            return
+        subdir = items[0]
+        for child in list(subdir.iterdir()):
+            shutil.move(str(child), str(dest / child.name))
+        subdir.rmdir()
+        print(f'       Flattened inner folder: {subdir.name}/')
+    except Exception as e:
+        print(f'       [WARN] Could not flatten subfolder: {e}')
 
 
 def extract_all(folder: str,
@@ -194,6 +212,7 @@ def extract_all(folder: str,
 
             if ok:
                 success += 1
+                _flatten_if_single_subdir(dest)
                 print(f'       [OK]')
                 log.write(f'[OK] {archive.name} → {dest.name}/\n')
                 if delete_after:

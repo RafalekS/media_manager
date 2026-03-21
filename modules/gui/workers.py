@@ -4,6 +4,7 @@ All heavy work happens off the main thread.
 stdout is redirected to the LogWidget signal stream.
 """
 
+import subprocess
 import sys
 import time
 import traceback
@@ -36,7 +37,7 @@ class _StoppableMixin:
 
 
 class ExtractWorker(_StoppableMixin, QThread):
-    """Extract archives from source folder before scanning."""
+    """Extract archives from source folder before scanning (local)."""
     finished = pyqtSignal(bool, str)
 
     def __init__(self, lib_config, stream, delete_after: bool = True):
@@ -63,6 +64,65 @@ class ExtractWorker(_StoppableMixin, QThread):
                     stop_fn=self.should_stop,
                 )
                 self.finished.emit(True, f'{ok} extracted, {fail} failed.')
+            except Exception as e:
+                traceback.print_exc()
+                self.finished.emit(False, str(e))
+
+
+class ExtractSSHWorker(_StoppableMixin, QThread):
+    """Extract archives on a remote host (QNAP NAS) via SSH."""
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, lib_config, stream, delete_after: bool = True):
+        _StoppableMixin.__init__(self)
+        QThread.__init__(self)
+        self._lib_config   = lib_config
+        self._stream       = stream
+        self._delete_after = delete_after
+
+    def run(self):
+        with _redirect_stdout(self._stream):
+            try:
+                ssh_host   = self._lib_config.data.get('ssh_host', '') or ''
+                ssh_user   = self._lib_config.data.get('ssh_user', '') or ''
+                remote_src = self._lib_config.data.get('ssh_source_path', '') or ''
+                script_path = self._lib_config.data.get('ssh_script_path', '') or \
+                              '/share/homes/admin/extractor_silent.sh'
+
+                if not ssh_host or not ssh_user or not remote_src:
+                    print('[SSH Extract] SSH host, user, and remote source path are required.')
+                    print('[SSH Extract] Configure them in Settings.')
+                    self.finished.emit(False, 'SSH settings incomplete.')
+                    return
+
+                delete_flag = '' if self._delete_after else '--no-delete'
+                remote_cmd  = f'bash "{script_path}" "{remote_src}" {delete_flag}'
+                ssh_target  = f'{ssh_user}@{ssh_host}'
+
+                print(f'[SSH Extract] Connecting to {ssh_target}')
+                print(f'[SSH Extract] Running: {remote_cmd}')
+
+                proc = subprocess.Popen(
+                    ['ssh', '-o', 'StrictHostKeyChecking=no',
+                     '-o', 'BatchMode=yes', ssh_target, remote_cmd],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                for line in proc.stdout:
+                    if self.should_stop():
+                        proc.terminate()
+                        print('[SSH Extract] Stopped.')
+                        break
+                    print(line, end='', flush=True)
+                proc.wait()
+
+                if proc.returncode == 0:
+                    self.finished.emit(True, 'SSH extraction complete.')
+                else:
+                    self.finished.emit(False, f'SSH exited with code {proc.returncode}')
+            except FileNotFoundError:
+                print('[SSH Extract] ssh not found — ensure OpenSSH is installed and in PATH.')
+                self.finished.emit(False, 'ssh command not found.')
             except Exception as e:
                 traceback.print_exc()
                 self.finished.emit(False, str(e))
