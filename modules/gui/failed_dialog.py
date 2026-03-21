@@ -402,7 +402,7 @@ class FailedItemsDialog(QDialog):
         self._progress.setVisible(False)
         self._set_buttons_enabled(True)
         self._worker = None
-        self._append_retry_log(f'\n[DONE] {message}\n')
+        self._append_retry_log(f'\n[DONE] {message} — found items saved to DB automatically.\n')
 
     def _set_buttons_enabled(self, enabled: bool):
         for btn in (self._btn_manual, self._btn_skip, self._btn_retry,
