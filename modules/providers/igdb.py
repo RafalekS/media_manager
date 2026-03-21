@@ -4,9 +4,34 @@ Docs: https://api-docs.igdb.com/
 Auth: OAuth2 client_credentials via Twitch endpoint.
 """
 
+import re
 import time
 import requests
 from modules.core.base_metadata import MetadataProvider
+
+# Ordered longest-first so VIII is checked before VI before I
+_ROMAN_TO_ARABIC = [
+    ('VIII', '8'), ('VII', '7'), ('VI', '6'), ('IV', '4'), ('IX', '9'),
+    ('III', '3'), ('II', '2'), ('X', '10'), ('V', '5'), ('I', '1'),
+]
+_ARABIC_TO_ROMAN = [(a, r) for r, a in reversed(_ROMAN_TO_ARABIC)]
+
+
+def _convert_numbers(text: str) -> str:
+    """Try arabic→roman then roman→arabic. Returns variant or original if no change."""
+    # Arabic → Roman (e.g. "Starcraft 2" → "Starcraft II")
+    v = text
+    for arabic, roman in _ARABIC_TO_ROMAN:
+        v = re.sub(rf'\b{arabic}\b', roman, v)
+    if v != text:
+        return v
+    # Roman → Arabic (e.g. "Final Fantasy VII" → "Final Fantasy 7")
+    v = text
+    for roman, arabic in _ROMAN_TO_ARABIC:
+        v = re.sub(rf'\b{roman}\b', arabic, v, flags=re.IGNORECASE)
+    if v != text:
+        return v
+    return ''  # no conversion possible
 
 
 class IGDBProvider(MetadataProvider):
@@ -144,6 +169,13 @@ class IGDBProvider(MetadataProvider):
 
     def search_and_extract(self, query: str) -> dict:
         results = self.search(query)
+        # If no exact match, also try with arabic↔roman number conversion
+        q_lower = query.lower().strip()
+        has_exact = any(r.get('name', '').lower().strip() == q_lower for r in results)
+        if not has_exact:
+            variant = _convert_numbers(query)
+            if variant:
+                results += self.search(variant)
         if not results:
             return self._default_item()
         return self.extract(self._pick_best_match(query, results))
