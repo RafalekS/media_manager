@@ -188,9 +188,10 @@ class MetadataWorker(_StoppableMixin, QThread):
 
 # ──────────────────────────────────────────────────────────────────────────────
 class MetadataRetryWorker(_StoppableMixin, QThread):
-    """Re-run metadata lookup for a specific list of failed items."""
+    """Re-run metadata lookup for a specific list of failed items.
+    Does NOT save to disk — dialog receives results and saves only on user confirmation."""
     item_result = pyqtSignal(str, bool, str)   # key, found, display_name
-    finished    = pyqtSignal(bool, str)
+    finished    = pyqtSignal(bool, str, dict)  # success, message, {key: result_dict}
 
     def __init__(self, lib_config, plugin, stream, retry_items: list):
         _StoppableMixin.__init__(self)
@@ -234,11 +235,9 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
                 for sup in supplements:
                     sup.authenticate()
 
-                meta_file = self._lib_config.metadata_file
-                progress  = load_metadata_progress(meta_file)
-                items     = progress.setdefault('processed_items', {})
-
+                found_results = {}  # key -> result dict — NOT saved yet
                 total = len(self._retry_items)
+
                 for i, entry in enumerate(self._retry_items, 1):
                     if self.should_stop():
                         print('[Retry] Stopped by user.')
@@ -262,28 +261,24 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
                         result['found']         = True
                         result['igdb_found']    = True
                         result['manual']        = False
-                        items[key] = result
+                        found_results[key] = result
                         print(f'  Found: {result.get("name", "")}')
                         self.item_result.emit(key, True, result.get('name', ''))
                     else:
-                        if key not in items:
-                            items[key] = {
-                                'original_name': orig,
-                                'found': False, 'igdb_found': False, 'manual': False,
-                            }
                         print('  Still not found.')
                         self.item_result.emit(key, False, '')
 
                     time.sleep(self._lib_config.data.get('rate_limit', 0.25))
 
-                save_metadata_progress(progress, meta_file)
-                found = sum(1 for e in self._retry_items
-                            if items.get(e['key'], {}).get('found'))
-                self.finished.emit(True, f'{found}/{total} found on retry.')
+                self.finished.emit(
+                    True,
+                    f'{len(found_results)}/{total} found — review results then click Save Found.',
+                    found_results,
+                )
 
             except Exception as e:
                 traceback.print_exc()
-                self.finished.emit(False, str(e))
+                self.finished.emit(False, str(e), {})
 
 
 # ──────────────────────────────────────────────────────────────────────────────

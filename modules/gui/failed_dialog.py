@@ -29,10 +29,11 @@ class FailedItemsDialog(QDialog):
 
     def __init__(self, lib_config, plugin, parent=None):
         super().__init__(parent)
-        self._lib_config = lib_config
-        self._plugin     = plugin
-        self._worker     = None
-        self._genres     = self._load_genres()
+        self._lib_config      = lib_config
+        self._plugin          = plugin
+        self._worker          = None
+        self._pending_results = {}
+        self._genres          = self._load_genres()
 
         self.setWindowTitle(f'Failed Items — {plugin.name}')
         self.resize(960, 640)
@@ -156,6 +157,12 @@ class FailedItemsDialog(QDialog):
         self._progress.setRange(0, 0)
         self._progress.setVisible(False)
         layout.addWidget(self._progress)
+
+        # Save Found — only visible after a successful retry
+        self._btn_save_found = QPushButton('Save Found')
+        self._btn_save_found.setVisible(False)
+        self._btn_save_found.clicked.connect(self._save_found)
+        layout.addWidget(self._btn_save_found)
 
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         btn_box.rejected.connect(self.accept)
@@ -370,6 +377,8 @@ class FailedItemsDialog(QDialog):
             return
 
         self._retry_log.clear()
+        self._pending_results = {}   # key -> result dict, populated by worker
+        self._btn_save_found.setVisible(False)
         self._progress.setVisible(True)
         self._set_buttons_enabled(False)
 
@@ -398,11 +407,37 @@ class FailedItemsDialog(QDialog):
                         si.setForeground(Qt.GlobalColor.red)
                 break
 
-    def _on_retry_done(self, success: bool, message: str):
+    def _on_retry_done(self, success: bool, message: str, found_results: dict):
         self._progress.setVisible(False)
         self._set_buttons_enabled(True)
         self._worker = None
-        self._append_retry_log(f'\n[DONE] {message} — found items saved to DB automatically.\n')
+        self._pending_results = found_results
+        self._append_retry_log(f'\n[DONE] {message}\n')
+        if found_results:
+            self._btn_save_found.setText(f'Save Found ({len(found_results)})')
+            self._btn_save_found.setVisible(True)
+
+    def _save_found(self):
+        if not self._pending_results:
+            return
+        meta_file = Path(self._lib_config.metadata_file)
+        try:
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+            key_name = 'processed_items' if 'processed_items' in raw else 'processed_games'
+            items = raw.get(key_name, {})
+            items.update(self._pending_results)
+            raw[key_name] = items
+            with open(meta_file, 'w', encoding='utf-8') as f:
+                json.dump(raw, f, indent=2, ensure_ascii=False)
+            count = len(self._pending_results)
+            self._pending_results = {}
+            self._btn_save_found.setVisible(False)
+            QMessageBox.information(
+                self, 'Saved', f'{count} item(s) saved to DB.\nRun Organize to move them.'
+            )
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to save:\n{e}')
 
     def _set_buttons_enabled(self, enabled: bool):
         for btn in (self._btn_manual, self._btn_skip, self._btn_retry,
