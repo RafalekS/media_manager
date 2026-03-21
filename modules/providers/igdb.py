@@ -146,4 +146,24 @@ class IGDBProvider(MetadataProvider):
         results = self.search(query)
         if not results:
             return self._default_item()
-        return self.extract(results[0])
+        return self.extract(self._pick_best_match(query, results))
+
+    def _pick_best_match(self, query: str, results: list) -> dict:
+        """
+        Return the result whose name best matches the query.
+        Exact match (case-insensitive) wins immediately.
+        Otherwise use SequenceMatcher ratio to pick the closest name.
+        """
+        import difflib
+        q = query.lower().strip()
+        best      = results[0]
+        best_score = -1.0
+        for r in results:
+            name = r.get('name', '').lower().strip()
+            if name == q:
+                return r  # exact match — done
+            score = difflib.SequenceMatcher(None, q, name).ratio()
+            if score > best_score:
+                best_score = score
+                best = r
+        return best
