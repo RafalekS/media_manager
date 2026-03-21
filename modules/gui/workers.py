@@ -187,6 +187,106 @@ class MetadataWorker(_StoppableMixin, QThread):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+class MetadataRetryWorker(_StoppableMixin, QThread):
+    """Re-run metadata lookup for a specific list of failed items."""
+    item_result = pyqtSignal(str, bool, str)   # key, found, display_name
+    finished    = pyqtSignal(bool, str)
+
+    def __init__(self, lib_config, plugin, stream, retry_items: list):
+        _StoppableMixin.__init__(self)
+        QThread.__init__(self)
+        self._lib_config   = lib_config
+        self._plugin       = plugin
+        self._stream       = stream
+        self._retry_items  = retry_items  # [{'key', 'search_name', 'original_name'}, ...]
+
+    def run(self):
+        with _redirect_stdout(self._stream):
+            try:
+                import json, time
+                from pathlib import Path
+                from modules.providers import get_provider_class
+                from modules.core.utils import load_metadata_progress, save_metadata_progress
+
+                api_cfg = self._lib_config.api
+
+                def _build(name):
+                    if not name:
+                        return None
+                    try:
+                        return get_provider_class(name)(api_cfg)
+                    except Exception as e:
+                        print(f'[Retry] Cannot load provider {name!r}: {e}')
+                        return None
+
+                primary = _build(self._lib_config.primary_provider)
+                supplements = [
+                    p for p in (
+                        _build(n) for n in self._lib_config.supplement_providers if n
+                    ) if p is not None
+                ]
+
+                if primary is None:
+                    self.finished.emit(False, 'No primary provider configured.')
+                    return
+
+                primary.authenticate()
+                for sup in supplements:
+                    sup.authenticate()
+
+                meta_file = self._lib_config.metadata_file
+                progress  = load_metadata_progress(meta_file)
+                items     = progress.setdefault('processed_items', {})
+
+                total = len(self._retry_items)
+                for i, entry in enumerate(self._retry_items, 1):
+                    if self.should_stop():
+                        print('[Retry] Stopped by user.')
+                        break
+
+                    key         = entry['key']
+                    search_name = entry.get('search_name') or key
+                    orig        = entry.get('original_name', key)
+
+                    print(f'[{i}/{total}] Retrying: {search_name}')
+
+                    try:
+                        from modules.core.base_metadata_processor import _query_with_supplements
+                        result = _query_with_supplements(primary, supplements, search_name)
+                    except Exception as e:
+                        print(f'  Error: {e}')
+                        result = None
+
+                    if result:
+                        result['original_name'] = orig
+                        result['found']         = True
+                        result['igdb_found']    = True
+                        result['manual']        = False
+                        items[key] = result
+                        print(f'  Found: {result.get("name", "")}')
+                        self.item_result.emit(key, True, result.get('name', ''))
+                    else:
+                        if key not in items:
+                            items[key] = {
+                                'original_name': orig,
+                                'found': False, 'igdb_found': False, 'manual': False,
+                            }
+                        print('  Still not found.')
+                        self.item_result.emit(key, False, '')
+
+                    time.sleep(self._lib_config.data.get('rate_limit', 0.25))
+
+                save_metadata_progress(progress, meta_file)
+                found = sum(1 for e in self._retry_items
+                            if items.get(e['key'], {}).get('found'))
+                self.finished.emit(True, f'{found}/{total} found on retry.')
+
+            except Exception as e:
+                traceback.print_exc()
+                self.finished.emit(False, str(e))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 class OrganizerWorker(QThread):
     """Generate organize .bat file."""
     progress = pyqtSignal(str)
