@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableView, QHeaderView, QLineEdit, QComboBox, QFrame,
+    QTableView, QHeaderView, QLineEdit, QComboBox, QFrame, QCheckBox,
 )
 
 
@@ -125,6 +125,11 @@ class LibraryBrowser(QWidget):
         self._genre_combo.currentIndexChanged.connect(self._apply_filter)
         flt.addWidget(self._genre_combo, 1)
 
+        self._chk_wrap = QCheckBox('Wrap text')
+        self._chk_wrap.setChecked(False)
+        self._chk_wrap.toggled.connect(self._toggle_wrap)
+        flt.addWidget(self._chk_wrap)
+
         layout.addLayout(flt)
 
         sep = QFrame()
@@ -198,6 +203,9 @@ class LibraryBrowser(QWidget):
         self._table.setSortingEnabled(True)
         self._lbl_status.setText(f'{len(self._data)} items')
 
+        if self._chk_wrap.isChecked():
+            self._table.resizeRowsToContents()
+
         if not self._state_loaded:
             self._ui_state.restore_table(self._table, self._state_key)
             self._state_loaded = True
@@ -215,6 +223,15 @@ class LibraryBrowser(QWidget):
         idx = self._genre_combo.findText(current)
         self._genre_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._genre_combo.blockSignals(False)
+
+    def _toggle_wrap(self, checked: bool):
+        self._table.setWordWrap(checked)
+        if checked:
+            self._table.resizeRowsToContents()
+        else:
+            self._table.verticalHeader().setDefaultSectionSize(30)
+            for row in range(self._model.rowCount()):
+                self._table.setRowHeight(row, 30)
 
     # ──────────────────────────────────────────────────────────────────
     def _apply_filter(self):

@@ -88,6 +88,7 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
 
         if result:
             result['original_name'] = original_name
+            result['full_path']     = entry.get('full_path', '')
             result['found']         = True
             result['igdb_found']    = True  # legacy compat
             result['manual']        = False

@@ -71,4 +71,5 @@ class GamesPlugin(MediaPlugin):
             ('year',         'Year',           60),
             ('rating',       'Rating',         65),
             ('description',  'Description',   350),
+            ('full_path',    'Location',      300),
         ]
