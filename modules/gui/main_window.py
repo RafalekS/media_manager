@@ -390,15 +390,25 @@ class MainWindow(QMainWindow):
         lbl.setProperty('role', 'title')
         lay.addWidget(lbl)
 
-        desc = QLabel(
-            'Extract compressed archives (RAR, ZIP, 7z) from the source folder.\n'
-            'Each archive is extracted into a subfolder with the same name. '
-            'Multi-part RARs (part2, part3…) are skipped — only the first part is processed.'
-        )
-        desc.setProperty('role', 'muted')
-        desc.setWordWrap(True)
-        lay.addWidget(desc)
+        # ── Archive list ──────────────────────────────────────────────
+        list_hdr = QHBoxLayout()
+        self._extract_count_lbl = QLabel('No source folder configured.')
+        self._extract_count_lbl.setProperty('role', 'muted')
+        list_hdr.addWidget(self._extract_count_lbl)
+        list_hdr.addStretch()
+        btn_refresh = QPushButton('Refresh')
+        btn_refresh.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        btn_refresh.clicked.connect(self._refresh_extract_list)
+        list_hdr.addWidget(btn_refresh)
+        lay.addLayout(list_hdr)
 
+        self._extract_list = QListWidget()
+        self._extract_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self._extract_list.setMinimumHeight(120)
+        self._extract_list.setMaximumHeight(240)
+        lay.addWidget(self._extract_list)
+
+        # ── Options ───────────────────────────────────────────────────
         grp = QGroupBox('Options')
         grp_lay = QVBoxLayout(grp)
 
@@ -448,6 +458,31 @@ class MainWindow(QMainWindow):
         lay.addStretch()
         return page
 
+    def _refresh_extract_list(self):
+        """Scan source folder and populate the archive list."""
+        if not hasattr(self, '_extract_list'):
+            return
+        from modules.core.archive_extractor import find_archives, clean_folder_name
+        src = self._lib_config.data.get('source_folder', '') or ''
+        self._extract_list.clear()
+        if not src:
+            self._extract_count_lbl.setText('No source folder configured.')
+            return
+        archives = find_archives(src)
+        if not archives:
+            self._extract_count_lbl.setText('No archives found.')
+            return
+        self._extract_count_lbl.setText(f'{len(archives)} archive(s) found:')
+        for a in archives:
+            size_mb = a.stat().st_size / (1024 * 1024)
+            size_str = f'{size_mb / 1024:.1f} GB' if size_mb >= 1024 else f'{size_mb:.0f} MB'
+            folder = clean_folder_name(a.name)
+            dest = a.parent / folder
+            status = '  [already extracted]' if dest.exists() else ''
+            self._extract_list.addItem(
+                f'  {a.name}  ({size_str})  →  {folder}/{status}'
+            )
+
     def _update_extract_labels(self):
         if not hasattr(self, '_extract_path_lbl'):
             return
@@ -457,8 +492,7 @@ class MainWindow(QMainWindow):
             self._extract_path_lbl.setText(f'Source folder: {src}')
         else:
             self._extract_path_lbl.setText(
-                'No source folder configured — set in Settings. '
-                '(Libraries that scan destination directly cannot use Extract.)'
+                'No source folder configured — set in Settings.'
             )
         configured = self._lib_config.data.get('extractor_path', '') or ''
         tool_path, tool_type = find_tool(configured)
@@ -469,6 +503,7 @@ class MainWindow(QMainWindow):
                 'No extraction tool found — install 7-Zip or WinRAR, '
                 'or set Extractor Path in Settings.'
             )
+        self._refresh_extract_list()
 
     # ── Scan page ─────────────────────────────────────────────────────
     def _build_scan_page(self) -> QWidget:
@@ -706,6 +741,8 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(row)
         if row == _PAGE_DASHBOARD:
             self._refresh_dashboard()
+        elif row == _PAGE_EXTRACT:
+            self._refresh_extract_list()
         elif row == _PAGE_LIBRARY and self._browser_page and not self._browser_page._state_loaded:
             self._browser_page.load_data()
 
