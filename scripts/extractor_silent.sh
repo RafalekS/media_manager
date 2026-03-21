@@ -69,14 +69,15 @@ clean_name() {
 # ── Flatten single inner subfolder ───────────────────────────────────────────
 flatten_if_single_subdir() {
     local dest="$1"
-    local items
-    mapfile -t items < <(find "$dest" -maxdepth 1 -mindepth 1)
-
-    if [[ ${#items[@]} -eq 1 && -d "${items[0]}" ]]; then
-        local subdir="${items[0]}"
-        log "  Flattening inner folder: $(basename "$subdir")/"
-        find "$subdir" -maxdepth 1 -mindepth 1 -exec mv {} "$dest/" \;
-        rmdir "$subdir" 2>/dev/null || true
+    local count subdir
+    count=$(find "$dest" -maxdepth 1 -mindepth 1 | wc -l)
+    if [[ "$count" -eq 1 ]]; then
+        subdir=$(find "$dest" -maxdepth 1 -mindepth 1)
+        if [[ -d "$subdir" ]]; then
+            log "  Flattening inner folder: $(basename "$subdir")/"
+            find "$subdir" -maxdepth 1 -mindepth 1 -exec mv {} "$dest/" \;
+            rmdir "$subdir" 2>/dev/null || true
+        fi
     fi
 }
 
