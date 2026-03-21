@@ -340,6 +340,12 @@ class MainWindow(QMainWindow):
             'Launch', self._open_refresh_wizard, '#0891b2',
         )
         wizard_row.addWidget(self._wiz_refresh)
+        self._wiz_rebuild = _WizardCard(
+            'Rebuild from Scratch',
+            'Wipe metadata DB and scan list, then re-fetch everything from scratch.',
+            'Launch', self._open_rebuild_wizard, '#ef4444',
+        )
+        wizard_row.addWidget(self._wiz_rebuild)
         lay.addLayout(wizard_row)
 
         sep = QFrame()
@@ -889,6 +895,11 @@ class MainWindow(QMainWindow):
     def _open_refresh_wizard(self):
         from modules.gui.wizard import RefreshDBWizard
         RefreshDBWizard(self._lib_config, self._plugin, self).exec()
+        self._refresh_dashboard()
+
+    def _open_rebuild_wizard(self):
+        from modules.gui.wizard import RebuildWizard
+        RebuildWizard(self._lib_config, self._plugin, self).exec()
         self._refresh_dashboard()
 
     def _open_failed_dialog(self):

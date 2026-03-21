@@ -12,7 +12,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QWidget, QSizePolicy, QMessageBox, QProgressBar,
+    QFrame, QWidget, QSizePolicy, QMessageBox, QProgressBar, QCheckBox,
 )
 
 from modules.gui.log_widget import LogWidget
@@ -450,6 +450,136 @@ class RefreshDBWizard(_BaseWizard):
                 self._lib_config, self._plugin, self._log.stream,
                 full_collection=True,
             )
+        )
+
+    def _run_html(self):
+        from modules.gui.workers import HTMLWorker
+        self._start_worker(
+            HTMLWorker(self._lib_config, self._plugin, self._log.stream)
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Rebuild from Scratch Wizard
+# ══════════════════════════════════════════════════════════════════════════════
+class RebuildWizard(_BaseWizard):
+    """Wipe data → Metadata (full collection) → Review Failures → Organize → HTML"""
+
+    def __init__(self, lib_config, plugin, parent=None):
+        steps = [
+            {
+                'title': 'Wipe Data',
+                'description': (
+                    'This will permanently delete:\n'
+                    '  • metadata_progress.json  (all metadata, ratings, descriptions)\n'
+                    '  • scan_list.json  (pending new items list)\n\n'
+                    'Your actual game files on disk are NOT touched.\n'
+                    'After wiping, metadata will be re-fetched from scratch for the '
+                    'entire collection.\n\n'
+                    'Click  Wipe Now  to confirm and continue.'
+                ),
+                'skippable': False,
+            },
+            {
+                'title': 'Metadata',
+                'description': (
+                    'Fetch metadata from scratch for ALL items in the destination folder.\n\n'
+                    'Every genre subfolder is scanned. Already-found items from previous '
+                    'runs are gone — everything is looked up fresh. '
+                    'Depending on collection size this may take several minutes.'
+                ),
+                'skippable': False,
+            },
+            {
+                'title': 'Review Failures',
+                'description': (
+                    'Review items that could not be matched automatically.\n\n'
+                    'Open the Failed Items dialog to manually assign genres or retry. '
+                    'You can skip this step and come back later via the Failed Items page.'
+                ),
+                'skippable': True,
+            },
+            {
+                'title': 'Organize',
+                'description': (
+                    'Generate a batch script that moves items into genre folders.\n\n'
+                    'Review the script before running — no files are moved until you '
+                    'execute it manually.'
+                ),
+                'skippable': True,
+            },
+            {
+                'title': 'Generate HTML',
+                'description': (
+                    'Build the dynamic HTML library page from the fresh metadata.\n\n'
+                    'The output file can be opened in any browser and supports filtering, '
+                    'sorting, and search.'
+                ),
+                'skippable': True,
+            },
+        ]
+        self._wipe_btn = None
+        super().__init__(f'Rebuild from Scratch — {plugin.name}', steps, lib_config, plugin, parent)
+
+    def _on_enter_step(self, index: int):
+        if index == 0:
+            self._show_wipe_step()
+        elif index == 1:
+            self._run_metadata()
+        elif index == 2:
+            self._show_failures_step()
+        elif index == 3:
+            self._run_organizer()
+        elif index == 4:
+            self._run_html()
+
+    def _show_wipe_step(self):
+        if self._wipe_btn is None:
+            self._wipe_btn = QPushButton('⚠  Wipe Now')
+            self._wipe_btn.setStyleSheet(
+                'background:#ef4444; color:#ffffff; font-weight:bold; padding:6px 18px;'
+            )
+            self._wipe_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            self._wipe_btn.clicked.connect(self._do_wipe)
+            layout = self.layout()
+            layout.insertWidget(layout.count() - 1, self._wipe_btn)
+        self._wipe_btn.setVisible(True)
+        self._btn_next.setEnabled(False)
+
+    def _do_wipe(self):
+        meta_file = Path(self._lib_config.metadata_file)
+        scan_file = Path(self._lib_config.scan_list_file)
+
+        deleted = []
+        for f in (meta_file, scan_file):
+            if f.exists():
+                f.unlink()
+                deleted.append(f.name)
+                print(f'[Wipe] Deleted: {f}')
+            else:
+                print(f'[Wipe] Not found (skipped): {f}')
+
+        self._wipe_btn.setVisible(False)
+        self._indicator.set_state(0, _DONE)
+        self._status_lbl.setStyleSheet('color:#10b981; font-size:9pt;')
+        msg = (f'Deleted: {", ".join(deleted)}'
+               if deleted else 'Nothing to delete — files already absent.')
+        self._status_lbl.setText(msg)
+        self._btn_next.setEnabled(True)
+
+    def _run_metadata(self):
+        from modules.gui.workers import MetadataWorker
+        self._start_worker(
+            MetadataWorker(
+                self._lib_config, self._plugin, self._log.stream,
+                full_collection=True,
+            )
+        )
+
+    def _run_organizer(self):
+        from modules.gui.workers import OrganizerWorker
+        self._start_worker(
+            OrganizerWorker(self._lib_config, self._plugin, self._log.stream)
         )
 
     def _run_html(self):
