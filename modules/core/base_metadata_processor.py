@@ -98,6 +98,7 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
         else:
             items[clean_name] = {
                 'original_name': original_name,
+                'full_path':     entry.get('full_path', ''),
                 'found':         False,
                 'igdb_found':    False,
                 'manual':        False,

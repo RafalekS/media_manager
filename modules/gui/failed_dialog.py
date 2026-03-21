@@ -22,10 +22,11 @@ from PyQt6.QtWidgets import (
 
 class FailedItemsDialog(QDialog):
 
-    _COL_SEL    = 0
-    _COL_FOLDER = 1
-    _COL_CLEAN  = 2
-    _COL_STATUS = 3
+    _COL_SEL      = 0
+    _COL_FOLDER   = 1
+    _COL_CLEAN    = 2
+    _COL_LOCATION = 3
+    _COL_STATUS   = 4
 
     def __init__(self, lib_config, plugin, parent=None):
         super().__init__(parent)
@@ -75,8 +76,8 @@ class FailedItemsDialog(QDialog):
         table_lay.setContentsMargins(0, 0, 0, 0)
 
         self._table = QTableWidget()
-        self._table.setColumnCount(4)
-        self._table.setHorizontalHeaderLabels(['', 'Folder Name', 'Clean Name', 'Status'])
+        self._table.setColumnCount(5)
+        self._table.setHorizontalHeaderLabels(['', 'Folder Name', 'Clean Name', 'Location', 'Status'])
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         hdr.setSectionsMovable(True)
@@ -215,16 +216,24 @@ class FailedItemsDialog(QDialog):
             ci.setToolTip('Double-click to edit the search name before retrying')
             self._table.setItem(row, self._COL_CLEAN, ci)
 
+            # Location — full_path if stored, else blank
+            full_path = info.get('full_path', '')
+            li = QTableWidgetItem(full_path)
+            li.setFlags(li.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            li.setToolTip(full_path)
+            self._table.setItem(row, self._COL_LOCATION, li)
+
             # Status
             si = QTableWidgetItem('Pending')
             si.setFlags(si.flags() & ~Qt.ItemFlag.ItemIsEditable)
             si.setForeground(Qt.GlobalColor.gray)
             self._table.setItem(row, self._COL_STATUS, si)
 
-        self._table.setColumnWidth(self._COL_SEL,    28)
-        self._table.setColumnWidth(self._COL_FOLDER, 290)
-        self._table.setColumnWidth(self._COL_CLEAN,  250)
-        self._table.setColumnWidth(self._COL_STATUS, 140)
+        self._table.setColumnWidth(self._COL_SEL,      28)
+        self._table.setColumnWidth(self._COL_FOLDER,  240)
+        self._table.setColumnWidth(self._COL_CLEAN,   200)
+        self._table.setColumnWidth(self._COL_LOCATION, 220)
+        self._table.setColumnWidth(self._COL_STATUS,   140)
         self._table.setSortingEnabled(True)
 
     # ── Context menu / copy ───────────────────────────────────────────
