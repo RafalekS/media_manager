@@ -301,7 +301,9 @@ class _BaseWizard(QDialog):
 
     def _open_failures(self):
         from modules.gui.failed_dialog import FailedItemsDialog
-        FailedItemsDialog(self._lib_config, self._plugin, self).exec()
+        parent = self.parent()
+        ui_state = getattr(parent, '_ui_state', None)
+        FailedItemsDialog(self._lib_config, self._plugin, self, ui_state=ui_state).exec()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

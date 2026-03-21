@@ -10,7 +10,7 @@ Shows a table of items that didn't match and allows:
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtCore import Qt, QEvent, QTimer
 from PyQt6.QtGui import QTextCursor, QFont, QAction
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -84,13 +84,19 @@ class FailedItemsDialog(QDialog):
     _COL_LOCATION = 3
     _COL_STATUS   = 4
 
-    def __init__(self, lib_config, plugin, parent=None):
+    def __init__(self, lib_config, plugin, parent=None, ui_state=None):
         super().__init__(parent)
         self._lib_config      = lib_config
         self._plugin          = plugin
         self._worker          = None
         self._pending_results = {}
         self._genres          = self._load_genres()
+        self._ui_state        = ui_state
+        self._state_key       = f'failed_dialog_{plugin.media_type}'
+        self._debounce        = QTimer()
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(400)
+        self._debounce.timeout.connect(self._save_state)
 
         self.setWindowTitle(f'Failed Items — {plugin.name}')
         self.resize(960, 640)
@@ -125,6 +131,7 @@ class FailedItemsDialog(QDialog):
 
         # Splitter: table top, retry log bottom
         splitter = QSplitter(Qt.Orientation.Vertical)
+        self._splitter = splitter
 
         # ── Table ─────────────────────────────────────────────────────
         table_w = QWidget()
@@ -137,6 +144,8 @@ class FailedItemsDialog(QDialog):
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         hdr.setSectionsMovable(True)
+        hdr.sectionResized.connect(lambda *_: self._debounce.start())
+        hdr.sectionMoved.connect(lambda *_: self._debounce.start())
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
         self._table.setAlternatingRowColors(True)
@@ -248,6 +257,7 @@ class FailedItemsDialog(QDialog):
         }
 
         self._populate_table(failed)
+        self._restore_state()
         self._info_label.setText(
             f'{len(failed)} failed item(s). '
             'Edit Clean Name before retrying. Double-click to edit.'
@@ -297,6 +307,22 @@ class FailedItemsDialog(QDialog):
         self._table.setColumnWidth(self._COL_LOCATION, 220)
         self._table.setColumnWidth(self._COL_STATUS,   140)
         self._table.setSortingEnabled(True)
+
+    # ── State persistence ─────────────────────────────────────────────
+    def _save_state(self):
+        if self._ui_state:
+            self._ui_state.save_table(self._table, self._state_key)
+            self._ui_state.save_splitter(self._splitter, self._state_key + '_splitter')
+
+    def _restore_state(self):
+        if self._ui_state:
+            self._ui_state.restore_table(self._table, self._state_key)
+            self._ui_state.restore_splitter(self._splitter, self._state_key + '_splitter')
+
+    def closeEvent(self, event):
+        self._debounce.stop()
+        self._save_state()
+        super().closeEvent(event)
 
     # ── Context menu / copy ───────────────────────────────────────────
     def eventFilter(self, obj, event):

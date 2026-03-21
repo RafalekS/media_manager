@@ -904,7 +904,7 @@ class MainWindow(QMainWindow):
 
     def _open_failed_dialog(self):
         from modules.gui.failed_dialog import FailedItemsDialog
-        FailedItemsDialog(self._lib_config, self._plugin, self).exec()
+        FailedItemsDialog(self._lib_config, self._plugin, self, ui_state=self._ui_state).exec()
 
     def _open_html(self):
         html_file = self._lib_config.html_file
