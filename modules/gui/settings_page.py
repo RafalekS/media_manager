@@ -171,6 +171,12 @@ class SettingsPage(QWidget):
         self._ssh_user.setPlaceholderText('e.g. rls1203')
         ssh_form.addRow('SSH User:', self._ssh_user)
 
+        self._ssh_key_path = QLineEdit()
+        self._ssh_key_path.setPlaceholderText(
+            r'e.g. C:\Users\r_sta\.ssh\P16_id_rsa  (leave blank for default key)'
+        )
+        ssh_form.addRow('SSH Key Path:', self._path_row(self._ssh_key_path, folder=False))
+
         self._ssh_source_path = QLineEdit()
         self._ssh_source_path.setPlaceholderText('e.g. /share/CACHEDEV1_DATA/FULL/Gry/New')
         ssh_form.addRow('Remote Source Path:', self._ssh_source_path)
@@ -257,6 +263,7 @@ class SettingsPage(QWidget):
         self._extractor_path.setText(lib_config.data.get('extractor_path', '') or '')
         self._ssh_host.setText(lib_config.data.get('ssh_host', '') or '')
         self._ssh_user.setText(lib_config.data.get('ssh_user', '') or '')
+        self._ssh_key_path.setText(lib_config.data.get('ssh_key_path', '') or '')
         self._ssh_source_path.setText(lib_config.data.get('ssh_source_path', '') or '')
         self._ssh_script_path.setText(lib_config.data.get('ssh_script_path', '') or '')
         self._bat.setText(str(lib_config.data.get('bat_output_path', '')))
@@ -424,6 +431,7 @@ class SettingsPage(QWidget):
         data['extractor_path']   = self._extractor_path.text().strip()
         data['ssh_host']         = self._ssh_host.text().strip()
         data['ssh_user']         = self._ssh_user.text().strip()
+        data['ssh_key_path']     = self._ssh_key_path.text().strip()
         data['ssh_source_path']  = self._ssh_source_path.text().strip()
         data['ssh_script_path']  = self._ssh_script_path.text().strip()
         data['bat_output_path']  = self._bat.text().strip()

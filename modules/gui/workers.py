@@ -83,9 +83,10 @@ class ExtractSSHWorker(_StoppableMixin, QThread):
     def run(self):
         with _redirect_stdout(self._stream):
             try:
-                ssh_host   = self._lib_config.data.get('ssh_host', '') or ''
-                ssh_user   = self._lib_config.data.get('ssh_user', '') or ''
-                remote_src = self._lib_config.data.get('ssh_source_path', '') or ''
+                ssh_host    = self._lib_config.data.get('ssh_host', '') or ''
+                ssh_user    = self._lib_config.data.get('ssh_user', '') or ''
+                ssh_key     = self._lib_config.data.get('ssh_key_path', '') or ''
+                remote_src  = self._lib_config.data.get('ssh_source_path', '') or ''
                 script_path = self._lib_config.data.get('ssh_script_path', '') or \
                               '/share/homes/admin/extractor_silent.sh'
 
@@ -99,12 +100,18 @@ class ExtractSSHWorker(_StoppableMixin, QThread):
                 remote_cmd  = f'bash "{script_path}" "{remote_src}" {delete_flag}'
                 ssh_target  = f'{ssh_user}@{ssh_host}'
 
+                ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
+                if ssh_key:
+                    ssh_cmd += ['-i', ssh_key]
+                ssh_cmd += [ssh_target, remote_cmd]
+
                 print(f'[SSH Extract] Connecting to {ssh_target}')
+                if ssh_key:
+                    print(f'[SSH Extract] Key: {ssh_key}')
                 print(f'[SSH Extract] Running: {remote_cmd}')
 
                 proc = subprocess.Popen(
-                    ['ssh', '-o', 'StrictHostKeyChecking=no',
-                     '-o', 'BatchMode=yes', ssh_target, remote_cmd],
+                    ssh_cmd,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True,
                 )
