@@ -34,13 +34,20 @@ class GamesPlugin(MediaPlugin):
         cleaned = raw
         for pat in self._STRIP_PATTERNS:
             cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE)
+        # Strip (update ...) parenthetical before dot/underscore replacement
+        cleaned = re.sub(r'\s*\(update[^)]*\)', '', cleaned, flags=re.IGNORECASE)
         cleaned = cleaned.replace('.', ' ').replace('_', ' ')
+        # Split CamelCase: HotlineMiami → Hotline Miami
+        cleaned = re.sub(r'([a-z])([A-Z])', r'\1 \2', cleaned)
+        # Space before digit after letter: Miami2 → Miami 2
+        cleaned = re.sub(r'([A-Za-z])(\d)', r'\1 \2', cleaned)
         cleaned = ' '.join(cleaned.split())
         cleaned = re.sub(r'\s+Update$', '', cleaned, flags=re.IGNORECASE)
         return cleaned.strip()
 
     def is_update(self, folder_name: str) -> bool:
-        return bool(re.search(r'[._\s]Update([._\s\-]|$)', folder_name, re.IGNORECASE))
+        # Match: .Update  _Update  (update)  " update"  etc.
+        return bool(re.search(r'[._\s(]update([._\s\-)]|$)', folder_name, re.IGNORECASE))
 
     def clean_update_name(self, raw: str) -> str:
         cleaned = raw
