@@ -24,7 +24,7 @@ def main():
     global_config = GlobalConfig()
 
     window = MainWindow(global_config)
-    window.show()
+    window.showMaximized()
 
     sys.exit(app.exec())
 
