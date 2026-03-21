@@ -152,7 +152,7 @@ class LibraryConfig:
 
     @property
     def genre_file(self) -> Path:
-        raw = self.data.get('genre_file', f'config/libraries/{self.media_type}_genres.json')
+        raw = self.data.get('genre_file', f'config/libraries/{self.media_type}.json')
         p = Path(raw)
         return p if p.is_absolute() else _ROOT / p
 
