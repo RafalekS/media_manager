@@ -13,8 +13,46 @@ from pathlib import Path
 
 ARCHIVE_EXTS = {'.rar', '.zip', '.7z'}
 
-# Skip non-first RAR parts: file.part2.rar, file.part02.rar, etc.
-_PART_RE = re.compile(r'\.part[2-9]\d*\.rar$', re.IGNORECASE)
+# Skip non-first RAR parts: file.part2.rar, file.part02.rar, file.r00, file.r01 etc.
+_PART_RE    = re.compile(r'\.part(\d+)\.rar$', re.IGNORECASE)
+_OLD_PART_RE = re.compile(r'\.(r\d{2}|s\d{2})$', re.IGNORECASE)  # old-style .r00 .r01
+
+# Scene group tags and version patterns to strip from folder names
+_STRIP_RE = re.compile(
+    r'[._-]+(v|V)\d+[\.\d]*.*'                          # version: v1.2.3
+    r'|[._-]+(build|Build)[._-]*\d+.*'                   # build number
+    r'|[._-]+(update|Update)[._-].*'                     # update label
+    r'|[._-]+\d{4}[._-]\d{2}[._-]\d{2}.*'              # date stamp
+    r'|[._-]+(RUNE|TENOKE|SKIDROW|DINO|DINOByTES'
+    r'|Razor1911|TiNYiSO|Unleashed|FitGirl|CODEX'
+    r'|EMPRESS|SiMPLEX|TiNYiSO|RELOADED|HOODLUM).*',
+    re.IGNORECASE,
+)
+
+
+def clean_folder_name(filename: str) -> str:
+    """
+    Convert archive filename to a clean folder name.
+    E.g. 'The.King.is.Watching.v1.2.rar' → 'The_King_is_Watching'
+    """
+    # Remove extension
+    name = Path(filename).stem
+
+    # Strip version / group tags
+    name = _STRIP_RE.sub('', name)
+
+    # Replace dots and underscores with spaces, then collapse multiple spaces
+    name = re.sub(r'[._]+', ' ', name).strip()
+
+    # Remove characters that aren't alphanumeric, space, or hyphen
+    name = re.sub(r'[^a-zA-Z0-9 \-]', '', name).strip()
+
+    # Limit length and replace spaces with underscores
+    name = name[:60].strip()
+    name = re.sub(r'\s+', '_', name)
+    name = name.strip('_')
+
+    return name or 'extracted_archive'
 
 
 def find_tool(configured_path: str = '') -> tuple[str, str]:
@@ -54,8 +92,13 @@ def find_archives(folder: str) -> list[Path]:
             continue
         if f.suffix.lower() not in ARCHIVE_EXTS:
             continue
-        if _PART_RE.search(f.name):
-            continue  # skip part2+
+        # Skip old-style multi-part: .r00, .r01 etc.
+        if _OLD_PART_RE.search(f.suffix):
+            continue
+        # Skip new-style multi-part: .part2.rar, .part02.rar, etc.
+        m = _PART_RE.search(f.name)
+        if m and int(m.group(1)) > 1:
+            continue
         archives.append(f)
     return archives
 
@@ -132,15 +175,15 @@ def extract_all(folder: str,
                 log.write('[STOPPED by user]\n')
                 break
 
-            dest = archive.parent / archive.stem  # strip .rar → folder name
+            folder_name = clean_folder_name(archive.name)
+            dest = archive.parent / folder_name
 
             if dest.exists():
-                msg = f'[{i}/{total}] Skip — already exists: {dest.name}/'
-                print(msg)
+                print(f'[{i}/{total}] Skip — already exists: {folder_name}/')
                 log.write(f'[SKIP] {archive.name}\n')
                 continue
 
-            print(f'[{i}/{total}] Extracting: {archive.name}  →  {dest.name}/')
+            print(f'[{i}/{total}] Extracting: {archive.name}  →  {folder_name}/')
 
             if archive.suffix.lower() == '.zip':
                 ok, err = _extract_zip(archive, dest)
