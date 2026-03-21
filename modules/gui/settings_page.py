@@ -47,6 +47,9 @@ _LIBRARY_PROVIDERS = {
         ('giantbomb',  'Giant Bomb',  False, [
             ('giantbomb_api_key', 'API Key',    True),
         ]),
+        ('itchio',     'itch.io',     False, [
+            ('itch_api_key',      'API Key',    True),
+        ]),
     ],
     'movies': [
         ('tmdb',   'TMDB',   True,  [('tmdb_api_key',   'API Key',   True)]),

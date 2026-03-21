@@ -260,7 +260,8 @@ class FailedItemsDialog(QDialog):
         }
 
         self._populate_table(failed)
-        self._restore_state()
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._restore_state)
         self._info_label.setText(
             f'{len(failed)} failed item(s). '
             'Edit Clean Name before retrying. Double-click to edit.'

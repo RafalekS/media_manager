@@ -7,6 +7,7 @@ _REGISTRY = {
     'igdb':             ('modules.providers.igdb',             'IGDBProvider'),
     'rawg':             ('modules.providers.rawg',             'RAWGProvider'),
     'giantbomb':        ('modules.providers.giantbomb',        'GiantBombProvider'),
+    'itchio':           ('modules.providers.itchio',           'ItchIOProvider'),
     # Movies
     'tmdb':             ('modules.providers.tmdb',             'TMDBProvider'),
     'omdb':             ('modules.providers.omdb',             'OMDBProvider'),

@@ -245,8 +245,8 @@ class LibraryBrowser(QWidget):
             self._table.resizeRowsToContents()
 
         if not self._state_loaded:
-            self._ui_state.restore_table(self._table, self._state_key)
             self._state_loaded = True
+            QTimer.singleShot(0, lambda: self._ui_state.restore_table(self._table, self._state_key))
 
         self._loading = False
         self._apply_filter()
