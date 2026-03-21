@@ -37,10 +37,11 @@ class GamesPlugin(MediaPlugin):
         # Strip (update ...) parenthetical before dot/underscore replacement
         cleaned = re.sub(r'\s*\(update[^)]*\)', '', cleaned, flags=re.IGNORECASE)
         cleaned = cleaned.replace('.', ' ').replace('_', ' ')
-        # Split CamelCase: HotlineMiami → Hotline Miami
-        cleaned = re.sub(r'([a-z])([A-Z])', r'\1 \2', cleaned)
-        # Space before digit after letter: Miami2 → Miami 2
-        cleaned = re.sub(r'([A-Za-z])(\d)', r'\1 \2', cleaned)
+        # Only split CamelCase when the string is fully concatenated (no spaces).
+        # Avoids breaking brand names like StarCraft → Star Craft.
+        if ' ' not in cleaned:
+            cleaned = re.sub(r'([a-z])([A-Z])', r'\1 \2', cleaned)
+            cleaned = re.sub(r'([A-Za-z])(\d)', r'\1 \2', cleaned)
         cleaned = ' '.join(cleaned.split())
         cleaned = re.sub(r'\s+Update$', '', cleaned, flags=re.IGNORECASE)
         return cleaned.strip()
