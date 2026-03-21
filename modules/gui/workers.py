@@ -35,6 +35,39 @@ class _StoppableMixin:
         return self._stop_requested
 
 
+class ExtractWorker(_StoppableMixin, QThread):
+    """Extract archives from source folder before scanning."""
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, lib_config, stream, delete_after: bool = True):
+        _StoppableMixin.__init__(self)
+        QThread.__init__(self)
+        self._lib_config   = lib_config
+        self._stream       = stream
+        self._delete_after = delete_after
+
+    def run(self):
+        with _redirect_stdout(self._stream):
+            try:
+                from modules.core.archive_extractor import extract_all, find_tool
+                source = self._lib_config.data.get('source_folder', '') or ''
+                if not source:
+                    print('[Extract] No source folder configured.')
+                    self.finished.emit(False, 'No source folder configured.')
+                    return
+                configured = self._lib_config.data.get('extractor_path', '') or ''
+                tool_path, tool_type = find_tool(configured)
+                ok, fail = extract_all(
+                    source, tool_path, tool_type,
+                    delete_after=self._delete_after,
+                    stop_fn=self.should_stop,
+                )
+                self.finished.emit(True, f'{ok} extracted, {fail} failed.')
+            except Exception as e:
+                traceback.print_exc()
+                self.finished.emit(False, str(e))
+
+
 class ScanWorker(_StoppableMixin, QThread):
     """Scan source folder for new items."""
     progress = pyqtSignal(str)

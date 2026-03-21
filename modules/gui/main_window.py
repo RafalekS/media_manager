@@ -34,13 +34,14 @@ APP_VERSION = '1.0.0'
 _ROOT = Path(__file__).parent.parent.parent
 
 _PAGE_DASHBOARD  = 0
-_PAGE_SCAN       = 1
-_PAGE_METADATA   = 2
-_PAGE_FAILED     = 3
-_PAGE_ORGANIZE   = 4
-_PAGE_HTML       = 5
-_PAGE_LIBRARY    = 6
-_PAGE_SETTINGS   = 7
+_PAGE_EXTRACT    = 1
+_PAGE_SCAN       = 2
+_PAGE_METADATA   = 3
+_PAGE_FAILED     = 4
+_PAGE_ORGANIZE   = 5
+_PAGE_HTML       = 6
+_PAGE_LIBRARY    = 7
+_PAGE_SETTINGS   = 8
 
 
 # ── Stat card ──────────────────────────────────────────────────────────────────
@@ -193,8 +194,9 @@ class MainWindow(QMainWindow):
         self._main_splitter.setCollapsible(1, True)
 
         # Build all pages
-        self._dash_page   = self._build_dashboard_page()
-        self._scan_page   = self._build_scan_page()
+        self._dash_page    = self._build_dashboard_page()
+        self._extract_page = self._build_extract_page()
+        self._scan_page    = self._build_scan_page()
         self._meta_page   = self._build_metadata_page()
         self._failed_page = self._build_simple_page(
             'Failed Items',
@@ -217,13 +219,14 @@ class MainWindow(QMainWindow):
 
         for page in (
             self._dash_page,           # 0
-            self._scan_page,           # 1
-            self._meta_page,           # 2
-            self._failed_page,         # 3
-            self._org_page,            # 4
-            self._html_page,           # 5
-            self._browser_placeholder, # 6
-            self._settings_page,       # 7
+            self._extract_page,        # 1
+            self._scan_page,           # 2
+            self._meta_page,           # 3
+            self._failed_page,         # 4
+            self._org_page,            # 5
+            self._html_page,           # 6
+            self._browser_placeholder, # 7
+            self._settings_page,       # 8
         ):
             self._stack.addWidget(page)
 
@@ -268,7 +271,7 @@ class MainWindow(QMainWindow):
         self._nav = QListWidget()
         self._nav.setObjectName('nav_list')
         for label in [
-            'Dashboard', 'Scan', 'Metadata',
+            'Dashboard', 'Extract', 'Scan', 'Metadata',
             'Failed Items', 'Organize', 'Generate HTML',
             'Library', 'Settings',
         ]:
@@ -375,6 +378,89 @@ class MainWindow(QMainWindow):
         lay.addStretch()
         scroll.setWidget(inner)
         return scroll
+
+    # ── Extract page ──────────────────────────────────────────────────
+    def _build_extract_page(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(10)
+
+        lbl = QLabel('Extract Archives')
+        lbl.setProperty('role', 'title')
+        lay.addWidget(lbl)
+
+        desc = QLabel(
+            'Extract compressed archives (RAR, ZIP, 7z) from the source folder.\n'
+            'Each archive is extracted into a subfolder with the same name. '
+            'Multi-part RARs (part2, part3…) are skipped — only the first part is processed.'
+        )
+        desc.setProperty('role', 'muted')
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+
+        grp = QGroupBox('Options')
+        grp_lay = QVBoxLayout(grp)
+
+        self._extract_path_lbl = QLabel('')
+        self._extract_path_lbl.setProperty('role', 'muted')
+        grp_lay.addWidget(self._extract_path_lbl)
+
+        self._extract_tool_lbl = QLabel('')
+        self._extract_tool_lbl.setProperty('role', 'muted')
+        grp_lay.addWidget(self._extract_tool_lbl)
+
+        self._extract_delete = QCheckBox('Delete archive after successful extraction')
+        self._extract_delete.setChecked(True)
+        grp_lay.addWidget(self._extract_delete)
+
+        lay.addWidget(grp)
+
+        btn_row = QHBoxLayout()
+        btn = QPushButton('Extract Now')
+        btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        btn.clicked.connect(self._run_extract)
+        btn_row.addWidget(btn)
+        stop = QPushButton('Stop')
+        stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        stop.setEnabled(False)
+        stop.clicked.connect(self._stop_worker)
+        btn_row.addWidget(stop)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.setVisible(False)
+        lay.addWidget(progress)
+
+        page._run_btn  = btn
+        page._stop_btn = stop
+        page._progress = progress
+        lay.addStretch()
+        return page
+
+    def _update_extract_labels(self):
+        if not hasattr(self, '_extract_path_lbl'):
+            return
+        from modules.core.archive_extractor import find_tool
+        src = self._lib_config.data.get('source_folder', '') or ''
+        if src:
+            self._extract_path_lbl.setText(f'Source folder: {src}')
+        else:
+            self._extract_path_lbl.setText(
+                'No source folder configured — set in Settings. '
+                '(Libraries that scan destination directly cannot use Extract.)'
+            )
+        configured = self._lib_config.data.get('extractor_path', '') or ''
+        tool_path, tool_type = find_tool(configured)
+        if tool_path:
+            self._extract_tool_lbl.setText(f'Tool: {tool_path}  ({tool_type})')
+        else:
+            self._extract_tool_lbl.setText(
+                'No extraction tool found — install 7-Zip or WinRAR, '
+                'or set Extractor Path in Settings.'
+            )
 
     # ── Scan page ─────────────────────────────────────────────────────
     def _build_scan_page(self) -> QWidget:
@@ -564,6 +650,7 @@ class MainWindow(QMainWindow):
         self._refresh_dashboard()
         self._update_organize_nav()
         self._update_scan_path_label()
+        self._update_extract_labels()
         self._status_bar.showMessage(f'Library: {self._plugin.name}')
 
     def _update_scan_path_label(self):
@@ -664,6 +751,12 @@ class MainWindow(QMainWindow):
             card.apply_theme(t['card_bg'], t['card_border'])
 
     # ── Workers ───────────────────────────────────────────────────────
+    def _run_extract(self):
+        from modules.gui.workers import ExtractWorker
+        delete_after = self._extract_delete.isChecked()
+        w = ExtractWorker(self._lib_config, self._log.stream, delete_after=delete_after)
+        self._start_worker(w, self._extract_page)
+
     def _run_scan(self):
         from modules.gui.workers import ScanWorker
         force = self._scan_force.isChecked()

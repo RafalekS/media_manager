@@ -138,6 +138,12 @@ class SettingsPage(QWidget):
         self._ext_row_label = QLabel('File extensions:')
         paths_form.addRow(self._ext_row_label, self._file_extensions)
 
+        self._extractor_path = QLineEdit()
+        self._extractor_path.setPlaceholderText(
+            'Leave blank to auto-detect  (e.g. C:\\Program Files\\WinRAR\\UnRAR.exe)'
+        )
+        paths_form.addRow('Extractor Path:', self._path_row(self._extractor_path, folder=False))
+
         self._bat = QLineEdit()
         self._bat.setPlaceholderText('(leave blank = destination base)')
         paths_form.addRow('Script Output Path:', self._path_row(self._bat, folder=False))
@@ -224,6 +230,7 @@ class SettingsPage(QWidget):
         self._file_extensions.setText(', '.join(exts))
         self._on_scan_mode_changed(scan_mode)
 
+        self._extractor_path.setText(lib_config.data.get('extractor_path', '') or '')
         self._bat.setText(str(lib_config.data.get('bat_output_path', '')))
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
@@ -386,6 +393,7 @@ class SettingsPage(QWidget):
         data['file_extensions']  = [
             e.strip() for e in raw_exts.split(',') if e.strip()
         ]
+        data['extractor_path']   = self._extractor_path.text().strip()
         data['bat_output_path']  = self._bat.text().strip()
         data['items_per_page']   = self._items_per_page.value()
         data['rate_limit']       = self._rate_limit.value()
