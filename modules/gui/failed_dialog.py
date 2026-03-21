@@ -100,7 +100,11 @@ class FailedItemsDialog(QDialog):
         self._debounce.timeout.connect(self._save_state)
 
         self.setWindowTitle(f'Failed Items — {plugin.name}')
-        self.resize(960, 640)
+        if self._ui_state:
+            self._ui_state.restore_window(self, key=f'{self._state_key}_window',
+                                          default_w=960, default_h=640)
+        else:
+            self.resize(960, 640)
         self._setup_ui()
         self._load_data()
 
@@ -349,6 +353,8 @@ class FailedItemsDialog(QDialog):
     def closeEvent(self, event):
         self._debounce.stop()
         self._save_state()
+        if self._ui_state:
+            self._ui_state.save_window(self, key=f'{self._state_key}_window')
         super().closeEvent(event)
 
     # ── Context menu / copy ───────────────────────────────────────────

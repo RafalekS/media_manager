@@ -155,16 +155,26 @@ class _BaseWizard(QDialog):
 
         layout.addLayout(nav)
 
+    def _ui_state(self):
+        return getattr(self.parent(), '_ui_state', None)
+
     def showEvent(self, event):
         super().showEvent(event)
         if not getattr(self, '_wizard_started', False):
             self._wizard_started = True
+            ui_state = self._ui_state()
+            if ui_state:
+                ui_state.restore_window(self, key='wizard_window',
+                                        default_w=720, default_h=560)
             self._enter_step(0)
 
     def closeEvent(self, event):
         if self._worker and self._worker.isRunning():
             self._worker.quit()
             self._worker.wait(3000)
+        ui_state = self._ui_state()
+        if ui_state:
+            ui_state.save_window(self, key='wizard_window')
         super().closeEvent(event)
 
     def _enter_step(self, index: int):
