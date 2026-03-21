@@ -10,6 +10,9 @@
 
 set -euo pipefail
 
+# QNAP puts tools in /usr/local/sbin which isn't in non-login SSH PATH
+export PATH="/usr/local/sbin:/usr/local/bin:$PATH"
+
 WORK_DIR="${1:-}"
 DELETE_AFTER=true
 
