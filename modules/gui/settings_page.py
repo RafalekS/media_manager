@@ -142,7 +142,7 @@ class SettingsPage(QWidget):
         self._extractor_path.setPlaceholderText(
             'Leave blank to auto-detect  (e.g. C:\\Program Files\\WinRAR\\UnRAR.exe)'
         )
-        paths_form.addRow('Extractor Path:', self._path_row(self._extractor_path, folder=False))
+        paths_form.addRow('Extractor Path:', self._path_row(self._extractor_path, folder=False, open_file=True))
 
         self._bat = QLineEdit()
         self._bat.setPlaceholderText('(leave blank = destination base)')
@@ -175,7 +175,7 @@ class SettingsPage(QWidget):
         self._ssh_key_path.setPlaceholderText(
             r'e.g. C:\Users\r_sta\.ssh\P16_id_rsa  (leave blank for default key)'
         )
-        ssh_form.addRow('SSH Key Path:', self._path_row(self._ssh_key_path, folder=False))
+        ssh_form.addRow('SSH Key Path:', self._path_row(self._ssh_key_path, folder=False, open_file=True))
 
         self._ssh_source_path = QLineEdit()
         self._ssh_source_path.setPlaceholderText('e.g. /share/CACHEDEV1_DATA/FULL/Gry/New')
@@ -227,7 +227,7 @@ class SettingsPage(QWidget):
         scroll.setWidget(inner)
         outer.addWidget(scroll)
 
-    def _path_row(self, line_edit: QLineEdit, folder: bool) -> QWidget:
+    def _path_row(self, line_edit: QLineEdit, folder: bool, open_file: bool = False) -> QWidget:
         container = QWidget()
         row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
@@ -236,6 +236,8 @@ class SettingsPage(QWidget):
         btn.setObjectName('btn_secondary')
         if folder:
             btn.clicked.connect(lambda: self._browse_folder(line_edit))
+        elif open_file:
+            btn.clicked.connect(lambda: self._browse_open_file(line_edit))
         else:
             btn.clicked.connect(lambda: self._browse_file(line_edit))
         row.addWidget(btn)
@@ -477,6 +479,14 @@ class SettingsPage(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self, 'Select Output File', edit.text(),
             'Batch Files (*.bat);;All Files (*)'
+        )
+        if path:
+            edit.setText(path)
+
+    def _browse_open_file(self, edit: QLineEdit):
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Select File', edit.text(),
+            'All Files (*)'
         )
         if path:
             edit.setText(path)
