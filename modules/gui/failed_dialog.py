@@ -534,9 +534,19 @@ class FailedItemsDialog(QDialog):
             raw[key_name] = items
             with open(meta_file, 'w', encoding='utf-8') as f:
                 json.dump(raw, f, indent=2, ensure_ascii=False)
-            count = len(self._pending_results)
+            saved_keys = set(self._pending_results.keys())
+            count = len(saved_keys)
             self._pending_results = {}
             self._btn_save_found.setVisible(False)
+            # Uncheck rows whose keys were just saved
+            for row in range(self._table.rowCount()):
+                chk = self._table.item(row, self._COL_SEL)
+                if chk:
+                    key = chk.data(Qt.ItemDataRole.UserRole)
+                    if isinstance(key, dict):
+                        key = key.get('key', '')
+                    if key in saved_keys:
+                        chk.setCheckState(Qt.CheckState.Unchecked)
             QMessageBox.information(
                 self, 'Saved', f'{count} item(s) saved to DB.\nRun Organize to move them.'
             )
