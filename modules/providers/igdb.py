@@ -183,18 +183,33 @@ class IGDBProvider(MetadataProvider):
     def _pick_best_match(self, query: str, results: list) -> dict:
         """
         Return the result whose name best matches the query.
-        Exact match (case-insensitive) wins immediately.
-        Otherwise use SequenceMatcher ratio to pick the closest name.
+
+        Scoring (all components 0-1, combined as weighted sum):
+          word_coverage  – fraction of query words present in result name.
+                           Prevents 'StarCraft' beating 'StarCraft II: ...'
+                           when query is 'StarCraft II' (missing 'II' = 0.5).
+          seq_ratio      – SequenceMatcher character similarity.
+          length_factor  – min(1, len(query)/len(result)) so editions/subtitles
+                           that are much longer than the query score slightly lower.
         """
         import difflib
         q = query.lower().strip()
-        best      = results[0]
+        # Strip punctuation for word matching so 'ii' matches 'ii:' in "StarCraft II: ..."
+        q_words = set(re.sub(r'[^\w\s]', '', q).split())
+        best       = results[0]
         best_score = -1.0
         for r in results:
             name = r.get('name', '').lower().strip()
             if name == q:
                 return r  # exact match — done
-            score = difflib.SequenceMatcher(None, q, name).ratio()
+            n_words = set(re.sub(r'[^\w\s]', '', name).split())
+            word_coverage = (
+                sum(1 for w in q_words if w in n_words) / len(q_words)
+                if q_words else 1.0
+            )
+            seq           = difflib.SequenceMatcher(None, q, name).ratio()
+            length_factor = min(1.0, len(q) / len(name)) if name else 0.0
+            score = word_coverage * 0.5 + seq * 0.3 + length_factor * 0.2
             if score > best_score:
                 best_score = score
                 best = r
