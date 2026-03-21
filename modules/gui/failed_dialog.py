@@ -93,6 +93,7 @@ class FailedItemsDialog(QDialog):
         self._genres          = self._load_genres()
         self._ui_state        = ui_state
         self._state_key       = f'failed_dialog_{plugin.media_type}'
+        self._last_checked_row = None
         self._debounce        = QTimer()
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(400)
@@ -155,6 +156,7 @@ class FailedItemsDialog(QDialog):
         self._table.customContextMenuRequested.connect(self._show_context_menu)
         self._table.installEventFilter(self)
         self._table.itemChanged.connect(self._on_item_changed)
+        self._table.itemClicked.connect(self._on_item_clicked)
 
         table_lay.addWidget(self._table)
         splitter.addWidget(table_w)
@@ -314,6 +316,23 @@ class FailedItemsDialog(QDialog):
             chk = self._table.item(item.row(), self._COL_SEL)
             if chk:
                 chk.setCheckState(Qt.CheckState.Checked)
+
+    def _on_item_clicked(self, item):
+        if item.column() != self._COL_SEL:
+            return
+        row = item.row()
+        state = item.checkState()
+        if (self._last_checked_row is not None
+                and QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier):
+            lo = min(self._last_checked_row, row)
+            hi = max(self._last_checked_row, row)
+            self._table.itemChanged.disconnect(self._on_item_changed)
+            for r in range(lo, hi + 1):
+                chk = self._table.item(r, self._COL_SEL)
+                if chk:
+                    chk.setCheckState(state)
+            self._table.itemChanged.connect(self._on_item_changed)
+        self._last_checked_row = row
 
     # ── State persistence ─────────────────────────────────────────────
     def _save_state(self):
