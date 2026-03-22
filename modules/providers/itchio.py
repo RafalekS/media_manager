@@ -1,10 +1,12 @@
 """
 itch.io provider (games supplement).
 Docs: https://itch.io/docs/api/serverside
-Auth: API key in URL path — no OAuth needed.
-Best used as a supplement for indie games not found on IGDB.
+Auth: Bearer token in Authorization header.
+Falls back to authenticated web search for adult games excluded from the public API.
 """
 
+import difflib
+import re
 import requests
 from modules.core.base_metadata import MetadataProvider
 
@@ -26,8 +28,6 @@ class ItchIOProvider(MetadataProvider):
             return []
         results = self._api_search(query)
         if not results:
-            # The public API excludes adult games regardless of account settings.
-            # Fall back to an authenticated web search which respects them.
             results = self._web_search(query)
         return results
 
@@ -36,6 +36,7 @@ class ItchIOProvider(MetadataProvider):
             r = requests.get(
                 f'{self._API_URL}/{self._api_key}/search/games',
                 params={'query': query},
+                headers={'Authorization': f'Bearer {self._api_key}'},
                 timeout=15,
             )
             r.raise_for_status()
@@ -45,8 +46,8 @@ class ItchIOProvider(MetadataProvider):
             return []
 
     def _web_search(self, query: str) -> list:
-        """Authenticated web search — finds adult games the public API excludes."""
-        import re, difflib
+        """Authenticated web search for adult games excluded from the public API.
+        Matches on URL slug (e.g. 'divine-heel') which is reliable and present in HTML."""
         try:
             r = requests.get(
                 'https://itch.io/search',
@@ -59,36 +60,31 @@ class ItchIOProvider(MetadataProvider):
             )
             r.raise_for_status()
 
-            game_ids = re.findall(r'data-game_id=["\'](\d+)["\']', r.text)
-
-            if not game_ids:
+            # Extract (game_id, url) pairs — slug in URL is the reliable title source
+            pairs = re.findall(
+                r'data-game_id=["\'](\d+)["\'].*?href="(https://[^"]+\.itch\.io/[^"]+)"',
+                r.text, re.DOTALL,
+            )
+            if not pairs:
                 return []
 
-            # DEBUG: show HTML around first game_id to find title class
-            m = re.search(r'data-game_id=["\']' + game_ids[0] + r'["\']', r.text)
-            if m:
-                snippet = r.text[m.start():m.start()+600].replace('\n', ' ')
-                print(f'[itch.io] HTML snippet: {snippet[:400]}')
+            print(f'[itch.io] web search: {len(pairs)} results')
 
-            titles   = re.findall(r'class="[^"]*game_title[^"]*"[^>]*>\s*([^<]+?)\s*<', r.text)
-            print(f'[itch.io] web search: {len(game_ids)} IDs, {len(titles)} titles extracted')
-
-            # Pick best matching title
-            q = query.lower().strip()
-            best_id, best_title, best_score = game_ids[0], '', -1.0
-            for gid, title in pairs:
-                t = title.strip().lower()
-                if t == q:
-                    best_id, best_title, best_score = gid, title.strip(), 1.0
+            q_slug = query.lower().strip().replace(' ', '-')
+            best_id, best_slug, best_score = pairs[0][0], '', -1.0
+            for gid, url in pairs:
+                slug = url.rstrip('/').split('/')[-1].lower()
+                if slug == q_slug:
+                    best_id, best_slug, best_score = gid, slug, 1.0
                     break
-                score = difflib.SequenceMatcher(None, q, t).ratio()
+                score = difflib.SequenceMatcher(None, q_slug, slug).ratio()
                 if score > best_score:
                     best_score = score
-                    best_id, best_title = gid, title.strip()
+                    best_id, best_slug = gid, slug
 
-            print(f'[itch.io] best match: "{best_title}" id={best_id} score={best_score:.2f}')
+            print(f'[itch.io] best match: slug="{best_slug}" id={best_id} score={best_score:.2f}')
 
-            if best_score < 0.6 and best_title:
+            if best_score < 0.6:
                 return []
 
             game = self._fetch_by_id(best_id)
@@ -101,6 +97,7 @@ class ItchIOProvider(MetadataProvider):
         try:
             r = requests.get(
                 f'{self._API_URL}/{self._api_key}/game/{game_id}',
+                headers={'Authorization': f'Bearer {self._api_key}'},
                 timeout=10,
             )
             r.raise_for_status()
@@ -109,7 +106,6 @@ class ItchIOProvider(MetadataProvider):
             return None
 
     def get_details(self, item_id) -> dict:
-        # itch.io server API has no single-game endpoint; search is all we have
         return {}
 
     def extract(self, raw: dict) -> dict:
@@ -122,7 +118,6 @@ class ItchIOProvider(MetadataProvider):
             year = published[:4]
 
         cover = raw.get('cover_url', '') or ''
-        # Ensure https
         if cover.startswith('//'):
             cover = 'https:' + cover
 
@@ -146,7 +141,6 @@ class ItchIOProvider(MetadataProvider):
         return self.extract(self._pick_best_match(query, results, name_key='title'))
 
     def _pick_best_match(self, query: str, results: list, name_key: str = 'name') -> dict:
-        import difflib
         q = query.lower().strip()
         for r in results:
             if r.get(name_key, '').lower().strip() == q:
