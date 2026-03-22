@@ -346,15 +346,16 @@ class FailedItemsDialog(QDialog):
             self._ui_state.restore_table(self._table, self._state_key)
             self._ui_state.restore_splitter(self._splitter, self._state_key + '_splitter')
 
-    def closeEvent(self, event):
+    def done(self, result: int):
+        """Called by accept(), reject() and the window X button — always runs before dialog hides."""
         if self._worker is not None and self._worker.isRunning():
             self._worker.request_stop()
-            self._worker.wait(5000)  # wait up to 5s for clean exit
+            self._worker.wait(5000)
         self._debounce.stop()
         self._save_state()
         if self._ui_state:
             self._ui_state.save_window(self, key=f'{self._state_key}_window')
-        super().closeEvent(event)
+        super().done(result)
 
     # ── Context menu / copy ───────────────────────────────────────────
     def eventFilter(self, obj, event):
