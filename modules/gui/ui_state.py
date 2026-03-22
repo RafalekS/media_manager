@@ -36,10 +36,13 @@ class UIState:
         self._state[key] = value
 
     def save_window(self, window, key='main_window'):
-        g = window.geometry()
+        from PyQt6.QtCore import Qt
+        maximized = bool(window.windowState() & Qt.WindowState.WindowMaximized)
+        g = window.normalGeometry() if maximized else window.geometry()
         self._state[key] = {
             'x': g.x(), 'y': g.y(),
             'width': g.width(), 'height': g.height(),
+            'maximized': maximized,
         }
         self.save()
 
@@ -47,12 +50,11 @@ class UIState:
                        default_w=1400, default_h=900):
         if key in self._state:
             s = self._state[key]
-            window.setGeometry(
-                s.get('x', 100), s.get('y', 100),
-                s.get('width', default_w), s.get('height', default_h),
-            )
+            window.resize(s.get('width', default_w), s.get('height', default_h))
+            if s.get('maximized', False):
+                window.showMaximized()
         else:
-            window.resize(default_w, default_h)
+            window.showMaximized()
 
     def save_splitter(self, splitter, key):
         self._state[key] = splitter.sizes()

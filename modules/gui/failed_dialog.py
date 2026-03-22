@@ -272,6 +272,7 @@ class FailedItemsDialog(QDialog):
         self._table.setSortingEnabled(False)
         self._table.setRowCount(0)
         self._table.setRowCount(len(failed))
+        self._table.itemChanged.disconnect(self._on_item_changed)
 
         for row, (clean_name, info) in enumerate(failed.items()):
             # Checkbox col
@@ -306,6 +307,7 @@ class FailedItemsDialog(QDialog):
             si.setForeground(Qt.GlobalColor.gray)
             self._table.setItem(row, self._COL_STATUS, si)
 
+        self._table.itemChanged.connect(self._on_item_changed)
         self._table.setColumnWidth(self._COL_SEL,      28)
         self._table.setColumnWidth(self._COL_FOLDER,  240)
         self._table.setColumnWidth(self._COL_CLEAN,   200)
@@ -499,14 +501,6 @@ class FailedItemsDialog(QDialog):
                 'original_name': info.get('original_name', info['key']),
             })
 
-        if QMessageBox.question(
-            self, 'Retry Lookup',
-            f'Query metadata providers for {len(retry_items)} item(s)?\n\n'
-            'Progress will appear in the log below.',
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        ) != QMessageBox.StandardButton.Yes:
-            return
-
         self._retry_log.clear()
         self._pending_results = {}   # key -> result dict, populated by worker
         self._btn_save_found.setVisible(False)
@@ -568,15 +562,22 @@ class FailedItemsDialog(QDialog):
             count = len(saved_keys)
             self._pending_results = {}
             self._btn_save_found.setVisible(False)
-            # Uncheck rows whose keys were just saved
+            # Remove saved rows from the table (they're no longer failed)
+            rows_to_remove = []
             for row in range(self._table.rowCount()):
                 chk = self._table.item(row, self._COL_SEL)
                 if chk:
-                    key = chk.data(Qt.ItemDataRole.UserRole)
-                    if isinstance(key, dict):
-                        key = key.get('key', '')
+                    info = chk.data(Qt.ItemDataRole.UserRole)
+                    key = info.get('key', '') if isinstance(info, dict) else info
                     if key in saved_keys:
-                        chk.setCheckState(Qt.CheckState.Unchecked)
+                        rows_to_remove.append(row)
+            for row in reversed(rows_to_remove):
+                self._table.removeRow(row)
+            remaining = self._table.rowCount()
+            self._info_label.setText(
+                f'{remaining} failed item(s). '
+                'Edit Clean Name before retrying. Double-click to edit.'
+            )
             QMessageBox.information(
                 self, 'Saved', f'{count} item(s) saved to DB.\nRun Organize to move them.'
             )
