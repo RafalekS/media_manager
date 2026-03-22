@@ -6,6 +6,7 @@ Cover images are loaded asynchronously and cached in memory.
 """
 
 import json
+import os
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
@@ -21,7 +22,7 @@ _KEY_ROLE   = Qt.ItemDataRole.UserRole       # stores metadata dict key on col-0
 _URL_ROLE   = Qt.ItemDataRole.UserRole + 1   # stores raw URL on cover cells
 
 # Keys that are always read-only in the edit dialog
-_DIALOG_READONLY = frozenset({'full_path', 'provider_source'})
+_DIALOG_READONLY = frozenset({'provider_source'})
 
 _COVER_ROW_HEIGHT  = 90   # px — used when cover column is visible
 _DEFAULT_ROW_HEIGHT = 30  # px
@@ -204,11 +205,41 @@ class _ItemEditDialog(QDialog):
             else:
                 updates[key] = widget.text()
 
+        old_path = str(self._item_data.get('full_path', '') or '').strip()
+        new_path = str(updates.get('full_path', old_path) or '').strip()
+
+        # ── Rename folder on disk if path changed ──────────────────────
+        renamed = False
+        if new_path and old_path and new_path != old_path:
+            if not Path(old_path).exists():
+                reply = QMessageBox.question(
+                    self, 'Folder Not Found',
+                    f'Original folder not found at:\n{old_path}\n\n'
+                    'Save the new path to the database anyway?',
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+            else:
+                try:
+                    os.rename(old_path, new_path)
+                    renamed = True
+                except OSError as e:
+                    QMessageBox.critical(self, 'Rename Failed',
+                        f'Could not rename folder:\n{old_path}\n→ {new_path}\n\n{e}')
+                    return
+
+        # ── Update metadata ────────────────────────────────────────────
         meta_file = Path(self._lib_config.metadata_file)
         try:
             with open(meta_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except Exception as e:
+            if renamed:
+                try:
+                    os.rename(new_path, old_path)   # undo rename
+                except OSError:
+                    pass
             QMessageBox.critical(self, 'Error', f'Could not read metadata:\n{e}')
             return
 
@@ -216,6 +247,11 @@ class _ItemEditDialog(QDialog):
         items = data.get(items_key, {})
 
         if self._meta_key not in items:
+            if renamed:
+                try:
+                    os.rename(new_path, old_path)
+                except OSError:
+                    pass
             QMessageBox.warning(self, 'Not found',
                                 f'Entry {self._meta_key!r} no longer exists in metadata.')
             return
@@ -223,6 +259,15 @@ class _ItemEditDialog(QDialog):
         items[self._meta_key].update(updates)
         if 'display_name' in updates:
             items[self._meta_key]['name'] = updates['display_name']
+
+        # Re-key the entry if the folder name (= dict key) changed
+        if new_path != old_path:
+            new_key = Path(new_path).name
+            if new_key != self._meta_key:
+                entry = items.pop(self._meta_key)
+                entry['original_name'] = new_key
+                entry['full_path']     = new_path
+                items[new_key]         = entry
 
         data[items_key] = items
         try:
@@ -279,7 +324,7 @@ class _LoadWorker(QThread):
 
 class LibraryBrowser(QWidget):
 
-    _READONLY_KEYS = frozenset({'full_path', 'provider_source'})
+    _READONLY_KEYS = frozenset({'provider_source'})
 
     def __init__(self, lib_config, plugin, ui_state, parent=None):
         super().__init__(parent)
