@@ -21,38 +21,38 @@ from PyQt6.QtWidgets import (
 from modules.gui.ui_state import UIState
 from modules.core.config_manager import GlobalConfig
 
-# ── Release-tag / noise words to strip ────────────────────────────────────────
-_NOISE_WORDS = {
-    # Unambiguous scene group tags (not real words)
+# Default noise words (fallback if not set in library config)
+_DEFAULT_NOISE_WORDS = [
     'TENOKE', 'CODEX', 'DODI', 'FLT', 'SKIDROW', 'PLAZA', 'CPY', 'RELOADED',
     'HOODLUM', 'PROPHET', 'SIMPLEX', 'TiNYiSO', 'RAZOR1911', 'DEVIANCE',
     'EMPRESS', 'FCKDRM', 'KAOS', 'NOFEAR', 'DARKSiDERS', 'DARKSIDERS',
-    'DOGE', 'FIGA', 'GOLDBERG',
-    # Unambiguous technical noise
-    'Update', 'Repack', 'MULTi', 'GOG',
-}
-
-# Compiled pattern: whole-word match for each noise word (case-insensitive)
-_NOISE_RE = re.compile(
-    r'\b(?:' + '|'.join(re.escape(w) for w in _NOISE_WORDS) + r')\b',
-    re.IGNORECASE,
-)
+    'DOGE', 'FIGA', 'GOLDBERG', 'GOG', 'Update', 'Repack', 'MULTi',
+]
 
 # Version numbers: v1.401, v2, 1.33.0, 1.0.0.1, Build 12345
 _VERSION_RE = re.compile(
-    r'\bv?\d+(?:\.\d+){1,4}\b'        # v1.2.3 / 1.2.3
-    r'|\bv\d+\b'                       # v2
-    r'|\bBuild\s*\d+\b',               # Build 1234
+    r'\bv?\d+(?:\.\d+){1,4}\b'
+    r'|\bv\d+\b'
+    r'|\bBuild\s*\d+\b',
     re.IGNORECASE,
 )
 
 
-def clean_folder_name(name: str) -> str:
+def _build_noise_re(words: list) -> re.Pattern:
+    return re.compile(
+        r'\b(?:' + '|'.join(re.escape(w) for w in words) + r')\b',
+        re.IGNORECASE,
+    )
+
+
+def clean_folder_name(name: str, noise_re: re.Pattern = None) -> str:
     """Replace separators, strip version numbers and noise tags, collapse whitespace."""
+    if noise_re is None:
+        noise_re = _build_noise_re(_DEFAULT_NOISE_WORDS)
     s = name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
     s = _VERSION_RE.sub('', s)
-    s = _NOISE_RE.sub('', s)
-    s = ' '.join(s.split())   # collapse whitespace
+    s = noise_re.sub('', s)
+    s = ' '.join(s.split())
     return s.strip()
 
 
@@ -73,6 +73,8 @@ class FolderSanitizerDialog(QDialog):
         self._lib_config = lib_config
         self._rows: list[dict] = []   # {genre, orig, folder_path, cleaned}
         self._last_checked_row = None
+        noise_words = lib_config.data.get('sanitize_noise_words', _DEFAULT_NOISE_WORDS)
+        self._noise_re = _build_noise_re(noise_words)
         self._ui_state = UIState(GlobalConfig().ui_state_path())
 
         self._save_timer = QTimer()
@@ -217,7 +219,7 @@ class FolderSanitizerDialog(QDialog):
                     if not item_dir.is_dir():
                         continue
                     orig    = item_dir.name
-                    cleaned = clean_folder_name(orig)
+                    cleaned = clean_folder_name(orig, self._noise_re)
                     self._rows.append({
                         'genre':       genre_dir.name,
                         'orig':        orig,
@@ -355,7 +357,7 @@ class FolderSanitizerDialog(QDialog):
             if row_idx is None:
                 continue
             orig = self._rows[row_idx]['orig']
-            cleaned = clean_folder_name(orig)
+            cleaned = clean_folder_name(orig, self._noise_re)
             self._rows[row_idx]['cleaned'] = cleaned
             cleaned_item = self._table.item(r, _COL_CLEANED)
             if cleaned_item:

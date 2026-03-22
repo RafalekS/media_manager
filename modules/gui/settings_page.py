@@ -210,6 +210,18 @@ class SettingsPage(QWidget):
 
         self._layout.addWidget(rl_grp)
 
+        # ── Folder Sanitizer ─────────────────────────────────────────
+        san_grp = QGroupBox('Folder Sanitizer')
+        san_form = QFormLayout(san_grp)
+        self._noise_words = QLineEdit()
+        self._noise_words.setPlaceholderText('Comma-separated, e.g. TENOKE, CODEX, GOG, Update')
+        self._noise_words.setToolTip(
+            'Words stripped from folder names by the Folder Sanitizer.\n'
+            'Separate with commas. Case-insensitive whole-word match.'
+        )
+        san_form.addRow('Noise Words:', self._noise_words)
+        self._layout.addWidget(san_grp)
+
         # ── HTML Options ─────────────────────────────────────────────
         html_grp = QGroupBox('HTML Options')
         html_form = QFormLayout(html_grp)
@@ -279,6 +291,9 @@ class SettingsPage(QWidget):
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
         self._rate_limit.setValue(lib_config.data.get('rate_limit', 0.25))
+
+        noise = lib_config.data.get('sanitize_noise_words', [])
+        self._noise_words.setText(', '.join(noise))
 
         self._rebuild_providers(mt, lib_config)
 
@@ -462,6 +477,10 @@ class SettingsPage(QWidget):
                 data['api'][key] = edit.text().strip()
 
         data['supplement_providers'] = supplements
+
+        data['sanitize_noise_words'] = [
+            w.strip() for w in self._noise_words.text().split(',') if w.strip()
+        ]
 
         try:
             with open(self._lib_config.path, 'w', encoding='utf-8') as f:
