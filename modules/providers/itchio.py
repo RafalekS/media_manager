@@ -24,6 +24,14 @@ class ItchIOProvider(MetadataProvider):
     def search(self, query: str) -> list:
         if not self._api_key:
             return []
+        results = self._api_search(query)
+        if not results:
+            # The public API excludes adult games regardless of account settings.
+            # Fall back to an authenticated web search which respects them.
+            results = self._web_search(query)
+        return results
+
+    def _api_search(self, query: str) -> list:
         try:
             r = requests.get(
                 f'{self._API_URL}/{self._api_key}/search/games',
@@ -31,15 +39,46 @@ class ItchIOProvider(MetadataProvider):
                 timeout=15,
             )
             r.raise_for_status()
-            raw = r.json()
-            results = raw.get('games') or []
-            print(f'[itch.io] query={query!r} → {len(results)} result(s)')
-            for g in results[:5]:
-                print(f'  - {g.get("title","?")}  id={g.get("id")}')
+            return r.json().get('games') or []
+        except Exception as e:
+            print(f'[itch.io] API search error: {e}')
+            return []
+
+    def _web_search(self, query: str) -> list:
+        """Authenticated web search — finds adult games the public API excludes."""
+        import re
+        try:
+            r = requests.get(
+                'https://itch.io/search',
+                params={'q': query, 'type': 'game'},
+                cookies={'itchio_token': self._api_key},
+                headers={'User-Agent': 'Mozilla/5.0 (compatible)'},
+                timeout=15,
+            )
+            r.raise_for_status()
+            game_ids = re.findall(r'data-game_id=["\'](\d+)["\']', r.text)
+            if not game_ids:
+                return []
+            results = []
+            for gid in game_ids[:5]:
+                game = self._fetch_by_id(gid)
+                if game:
+                    results.append(game)
             return results
         except Exception as e:
-            print(f'[itch.io] Search error: {e}')
+            print(f'[itch.io] Web search error: {e}')
             return []
+
+    def _fetch_by_id(self, game_id: str):
+        try:
+            r = requests.get(
+                f'{self._API_URL}/{self._api_key}/game/{game_id}',
+                timeout=10,
+            )
+            r.raise_for_status()
+            return r.json().get('game')
+        except Exception:
+            return None
 
     def get_details(self, item_id) -> dict:
         # itch.io server API has no single-game endpoint; search is all we have

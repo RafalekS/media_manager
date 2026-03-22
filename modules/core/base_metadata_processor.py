@@ -141,28 +141,34 @@ def _query_with_supplements(primary, supplements, query: str) -> dict:
     """
     result = primary.search_and_extract(query)
 
+    primary_name = type(primary).__name__.replace('Provider', '')
+
     if result and result.get('name'):
-        result['provider_source'] = type(primary).__name__.replace('Provider', '')
-        # Fill in missing fields from supplements
+        result['provider_source'] = primary_name
         for sup in supplements:
+            sup_name = type(sup).__name__.replace('Provider', '')
             try:
                 sup_result = sup.search_and_extract(query)
                 if sup_result and sup_result.get('name'):
                     _merge_supplement(result, sup_result)
             except Exception as e:
-                print(f'    [Supplement] Error: {e}')
+                print(f'  [{sup_name}] Error: {e}')
         return result
 
-    # Primary found nothing — try supplements as fallback primaries
+    # Primary found nothing — try each supplement as a fallback primary
+    print(f'  [{primary_name}] No match — trying supplements')
     for sup in supplements:
+        sup_name = type(sup).__name__.replace('Provider', '')
         try:
             sup_result = sup.search_and_extract(query)
             if sup_result and sup_result.get('name'):
-                sup_result['provider_source'] = type(sup).__name__.replace('Provider', '')
-                print(f'    [Fallback] Found via {type(sup).__name__}: {sup_result.get("name")}')
+                sup_result['provider_source'] = sup_name
+                print(f'  [{sup_name}] Found: {sup_result.get("name")}')
                 return sup_result
+            else:
+                print(f'  [{sup_name}] No match')
         except Exception as e:
-            print(f'    [Fallback] Error from {type(sup).__name__}: {e}')
+            print(f'  [{sup_name}] Error: {e}')
 
     return None
 
