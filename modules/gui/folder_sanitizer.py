@@ -87,10 +87,10 @@ class FolderSanitizerDialog(QDialog):
         self._build_ui()
         self._scan()
 
-    def closeEvent(self, event):
+    def done(self, result):
         self._save_timer.stop()
         self._save_table_state()
-        super().closeEvent(event)
+        super().done(result)
 
     def _save_table_state(self):
         self._ui_state.save_table(self._table, _STATE_KEY)
