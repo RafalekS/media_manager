@@ -34,15 +34,11 @@ from modules.gui.settings_page import SettingsPage
 APP_VERSION = '1.0.0'
 _ROOT = Path(__file__).parent.parent.parent
 
-_PAGE_DASHBOARD  = 0
-_PAGE_EXTRACT    = 1
-_PAGE_SCAN       = 2
-_PAGE_METADATA   = 3
-_PAGE_FAILED     = 4
-_PAGE_ORGANIZE   = 5
-_PAGE_HTML       = 6
-_PAGE_LIBRARY    = 7
-_PAGE_SETTINGS   = 8
+_PAGE_DASHBOARD   = 0
+_PAGE_EXTRACT     = 1
+_PAGE_OPERATIONS  = 2
+_PAGE_LIBRARY     = 3
+_PAGE_SETTINGS    = 4
 
 
 # ── Stat card ──────────────────────────────────────────────────────────────────
@@ -196,39 +192,18 @@ class MainWindow(QMainWindow):
         self._log.setVisible(False)  # hidden until an operational tab is selected
 
         # Build all pages
-        self._dash_page    = self._build_dashboard_page()
-        self._extract_page = self._build_extract_page()
-        self._scan_page    = self._build_scan_page()
-        self._meta_page   = self._build_metadata_page()
-        self._failed_page = self._build_simple_page(
-            'Failed Items',
-            'Review and manually assign genres to items that couldn\'t be matched.',
-            'Open Failed Items Dialog', self._open_failed_dialog,
-        )
-        self._org_page  = self._build_simple_page(
-            'Organize',
-            'Generate a batch script that moves items into genre folders.\n'
-            'Review the script before running — no files are moved until you execute it.',
-            'Generate Organize Script', self._run_organizer,
-        )
-        self._html_page = self._build_simple_page(
-            'Generate HTML',
-            'Build the dynamic HTML library page from your metadata database.',
-            'Generate HTML', self._run_html,
-        )
+        self._dash_page        = self._build_dashboard_page()
+        self._extract_page     = self._build_extract_page()
+        self._operations_page  = self._build_operations_page()
         self._browser_placeholder = QWidget()
-        self._settings_page = SettingsPage()
+        self._settings_page    = SettingsPage()
 
         for page in (
-            self._dash_page,           # 0
-            self._extract_page,        # 1
-            self._scan_page,           # 2
-            self._meta_page,           # 3
-            self._failed_page,         # 4
-            self._org_page,            # 5
-            self._html_page,           # 6
-            self._browser_placeholder, # 7
-            self._settings_page,       # 8
+            self._dash_page,            # 0
+            self._extract_page,         # 1
+            self._operations_page,      # 2
+            self._browser_placeholder,  # 3
+            self._settings_page,        # 4
         ):
             self._stack.addWidget(page)
 
@@ -273,8 +248,7 @@ class MainWindow(QMainWindow):
         self._nav = QListWidget()
         self._nav.setObjectName('nav_list')
         for label in [
-            'Dashboard', 'Extract', 'Scan', 'Metadata',
-            'Failed Items', 'Organize', 'Generate HTML',
+            'Dashboard', 'Extract', 'Operations',
             'Library', 'Settings',
         ]:
             self._nav.addItem(QListWidgetItem(label))
@@ -548,163 +522,149 @@ class MainWindow(QMainWindow):
         self._refresh_extract_list()
 
     # ── Scan page ─────────────────────────────────────────────────────
-    def _build_scan_page(self) -> QWidget:
-        page = QWidget()
-        lay = QVBoxLayout(page)
+    def _build_operations_page(self) -> QWidget:
+        """Single page combining Scan, Metadata, Failed Items, Organize, Generate HTML."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
         lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(10)
+        lay.setSpacing(16)
 
-        lbl = QLabel('Scan')
-        lbl.setProperty('role', 'title')
-        lay.addWidget(lbl)
+        title = QLabel('Operations')
+        title.setProperty('role', 'title')
+        lay.addWidget(title)
 
-        desc = QLabel(
-            'Scan source folder for new items and create scan_list.json.\n'
+        def _make_section(group_title, desc_text, btn_label, slot, has_stop=True):
+            grp = QGroupBox(group_title)
+            gl = QVBoxLayout(grp)
+            if desc_text:
+                d = QLabel(desc_text)
+                d.setProperty('role', 'muted')
+                d.setWordWrap(True)
+                gl.addWidget(d)
+            row = QHBoxLayout()
+            btn = QPushButton(btn_label)
+            btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+            btn.clicked.connect(slot)
+            row.addWidget(btn)
+            stop = None
+            if has_stop:
+                stop = QPushButton('Stop')
+                stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+                stop.setEnabled(False)
+                stop.clicked.connect(self._stop_worker)
+                row.addWidget(stop)
+            row.addStretch()
+            gl.addLayout(row)
+            prog = QProgressBar()
+            prog.setRange(0, 0)
+            prog.setVisible(False)
+            gl.addWidget(prog)
+            return grp, btn, stop, prog
+
+        # ── Scan ──────────────────────────────────────────────────────
+        scan_grp = QGroupBox('Scan')
+        scan_lay = QVBoxLayout(scan_grp)
+        scan_desc = QLabel(
+            'Scan source folder for new items.\n'
             'For libraries without a separate source, scans the destination directly.'
         )
-        desc.setProperty('role', 'muted')
-        desc.setWordWrap(True)
-        lay.addWidget(desc)
-
-        grp = QGroupBox('Options')
-        grp_lay = QVBoxLayout(grp)
-        self._scan_force = QCheckBox('Force rescan (ignore existing scan_list.json)')
+        scan_desc.setProperty('role', 'muted')
+        scan_desc.setWordWrap(True)
+        scan_lay.addWidget(scan_desc)
+        self._scan_force = QCheckBox('Force rescan (ignore existing scan list)')
         self._scan_force.setChecked(True)
-        grp_lay.addWidget(self._scan_force)
+        scan_lay.addWidget(self._scan_force)
         self._scan_path_lbl = QLabel('')
         self._scan_path_lbl.setProperty('role', 'muted')
-        grp_lay.addWidget(self._scan_path_lbl)
-        lay.addWidget(grp)
+        scan_lay.addWidget(self._scan_path_lbl)
+        scan_row = QHBoxLayout()
+        self._scan_run_btn = QPushButton('Scan Now')
+        self._scan_run_btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        self._scan_run_btn.clicked.connect(self._run_scan)
+        self._scan_stop_btn = QPushButton('Stop')
+        self._scan_stop_btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        self._scan_stop_btn.setEnabled(False)
+        self._scan_stop_btn.clicked.connect(self._stop_worker)
+        scan_row.addWidget(self._scan_run_btn)
+        scan_row.addWidget(self._scan_stop_btn)
+        scan_row.addStretch()
+        scan_lay.addLayout(scan_row)
+        self._scan_progress = QProgressBar()
+        self._scan_progress.setRange(0, 0)
+        self._scan_progress.setVisible(False)
+        scan_lay.addWidget(self._scan_progress)
+        lay.addWidget(scan_grp)
 
-        btn_row = QHBoxLayout()
-        btn = QPushButton('Scan Now')
-        btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
-        btn.clicked.connect(self._run_scan)
-        btn_row.addWidget(btn)
-        stop = QPushButton('Stop')
-        stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
-        stop.setEnabled(False)
-        stop.clicked.connect(self._stop_worker)
-        btn_row.addWidget(stop)
-        btn_row.addStretch()
-        lay.addLayout(btn_row)
-
-        progress = QProgressBar()
-        progress.setRange(0, 0)
-        progress.setVisible(False)
-        lay.addWidget(progress)
-
-        page._run_btn  = btn
-        page._stop_btn = stop
-        page._progress = progress
-        lay.addStretch()
-        return page
-
-    # ── Metadata page ─────────────────────────────────────────────────
-    def _build_metadata_page(self) -> QWidget:
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(10)
-
-        lbl = QLabel('Metadata')
-        lbl.setProperty('role', 'title')
-        lay.addWidget(lbl)
-
-        desc = QLabel('Fetch metadata from providers for scanned items.')
-        desc.setProperty('role', 'muted')
-        desc.setWordWrap(True)
-        lay.addWidget(desc)
-
-        grp = QGroupBox('Query Mode')
-        grp_lay = QVBoxLayout(grp)
-
-        self._meta_radio_new  = QRadioButton('New items only — process scan_list.json (skips already found)')
-        self._meta_radio_full = QRadioButton('Full collection — re-query all items in destination folder')
+        # ── Metadata ──────────────────────────────────────────────────
+        meta_grp = QGroupBox('Metadata')
+        meta_lay = QVBoxLayout(meta_grp)
+        meta_desc = QLabel('Fetch metadata from providers for scanned items.')
+        meta_desc.setProperty('role', 'muted')
+        meta_desc.setWordWrap(True)
+        meta_lay.addWidget(meta_desc)
+        self._meta_radio_new  = QRadioButton('New items only (skips already matched)')
+        self._meta_radio_full = QRadioButton('Full collection — re-query all items in destination')
         self._meta_radio_new.setChecked(True)
-
         self._meta_mode_grp = QButtonGroup(self)
         self._meta_mode_grp.addButton(self._meta_radio_new,  1)
         self._meta_mode_grp.addButton(self._meta_radio_full, 2)
+        meta_lay.addWidget(self._meta_radio_new)
+        meta_lay.addWidget(self._meta_radio_full)
+        meta_row = QHBoxLayout()
+        self._meta_run_btn = QPushButton('Start Metadata Fetch')
+        self._meta_run_btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        self._meta_run_btn.clicked.connect(self._run_metadata)
+        self._meta_stop_btn = QPushButton('Stop')
+        self._meta_stop_btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        self._meta_stop_btn.setEnabled(False)
+        self._meta_stop_btn.clicked.connect(self._stop_worker)
+        meta_row.addWidget(self._meta_run_btn)
+        meta_row.addWidget(self._meta_stop_btn)
+        meta_row.addStretch()
+        meta_lay.addLayout(meta_row)
+        self._meta_progress = QProgressBar()
+        self._meta_progress.setRange(0, 0)
+        self._meta_progress.setVisible(False)
+        meta_lay.addWidget(self._meta_progress)
+        lay.addWidget(meta_grp)
 
-        warn = QLabel(
-            'Full collection queries all items found in the destination folder. '
-            'Skips items already in metadata_progress.json. May take several minutes.'
+        # ── Failed Items ──────────────────────────────────────────────
+        failed_grp, self._failed_run_btn, _, _fp = _make_section(
+            'Failed Items',
+            'Review items that couldn\'t be matched and manually assign genres.',
+            'Open Failed Items Dialog',
+            self._open_failed_dialog,
+            has_stop=False,
         )
-        warn.setProperty('role', 'muted')
-        warn.setWordWrap(True)
-        warn.setVisible(False)
-        self._meta_radio_full.toggled.connect(warn.setVisible)
+        _fp.setVisible(False)
+        lay.addWidget(failed_grp)
 
-        grp_lay.addWidget(self._meta_radio_new)
-        grp_lay.addWidget(self._meta_radio_full)
-        grp_lay.addWidget(warn)
-        lay.addWidget(grp)
+        # ── Organize ──────────────────────────────────────────────────
+        self._org_grp, self._org_run_btn, self._org_stop_btn, self._org_progress = _make_section(
+            'Organize',
+            'Generate a batch script that moves items into genre folders.\n'
+            'Review the script before running — no files are moved until you execute it.',
+            'Generate Organize Script',
+            self._run_organizer,
+        )
+        lay.addWidget(self._org_grp)
 
-        btn_row = QHBoxLayout()
-        btn = QPushButton('Start Metadata Fetch')
-        btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
-        btn.clicked.connect(self._run_metadata)
-        btn_row.addWidget(btn)
-        stop = QPushButton('Stop')
-        stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
-        stop.setEnabled(False)
-        stop.clicked.connect(self._stop_worker)
-        btn_row.addWidget(stop)
-        btn_row.addStretch()
-        lay.addLayout(btn_row)
+        # ── Generate HTML ─────────────────────────────────────────────
+        html_grp, self._html_run_btn, self._html_stop_btn, self._html_progress = _make_section(
+            'Generate HTML',
+            'Build the dynamic HTML library page from your metadata.',
+            'Generate HTML',
+            self._run_html,
+        )
+        lay.addWidget(html_grp)
 
-        progress = QProgressBar()
-        progress.setRange(0, 0)
-        progress.setVisible(False)
-        lay.addWidget(progress)
-
-        page._run_btn  = btn
-        page._stop_btn = stop
-        page._progress = progress
         lay.addStretch()
-        return page
-
-    # ── Generic step page (Organize / HTML / Failed) ──────────────────
-    def _build_simple_page(self, title: str, description: str,
-                           btn_label: str, action_slot) -> QWidget:
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(10)
-
-        lbl = QLabel(title)
-        lbl.setProperty('role', 'title')
-        lay.addWidget(lbl)
-
-        desc = QLabel(description)
-        desc.setProperty('role', 'muted')
-        desc.setWordWrap(True)
-        lay.addWidget(desc)
-
-        btn_row = QHBoxLayout()
-        btn = QPushButton(btn_label)
-        btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
-        btn.clicked.connect(action_slot)
-        btn_row.addWidget(btn)
-        stop = QPushButton('Stop')
-        stop.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
-        stop.setEnabled(False)
-        stop.clicked.connect(self._stop_worker)
-        btn_row.addWidget(stop)
-        btn_row.addStretch()
-        lay.addLayout(btn_row)
-
-        progress = QProgressBar()
-        progress.setRange(0, 0)
-        progress.setVisible(False)
-        lay.addWidget(progress)
-
-        page._run_btn  = btn
-        page._stop_btn = stop
-        page._progress = progress
-        lay.addStretch()
-        return page
+        scroll.setWidget(inner)
+        return scroll
 
     # ── Library switching ─────────────────────────────────────────────
     def _load_library(self, media_type: str):
@@ -752,11 +712,8 @@ class MainWindow(QMainWindow):
 
     def _update_organize_nav(self):
         enabled = self._lib_config.data.get('organize_enabled', True)
-        item = self._nav.item(_PAGE_ORGANIZE)
-        if enabled:
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-        else:
-            item.setFlags(item.flags() & ~(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable))
+        if hasattr(self, '_org_grp'):
+            self._org_grp.setVisible(enabled)
 
     def _rebuild_browser_page(self):
         from modules.gui.library_browser import LibraryBrowser
@@ -767,8 +724,11 @@ class MainWindow(QMainWindow):
             old.save_state()
         new_page = LibraryBrowser(self._lib_config, self._plugin, self._ui_state)
         self._stack.insertWidget(_PAGE_LIBRARY, new_page)
-        self._stack.removeWidget(old)
-        old.deleteLater()
+        # insertWidget shifts existing widgets — remove the now-displaced placeholder
+        displaced = self._stack.widget(_PAGE_LIBRARY + 1)
+        if displaced is old:
+            self._stack.removeWidget(old)
+            old.deleteLater()
         self._browser_page = new_page
 
     def _on_lib_changed(self, _):
@@ -779,8 +739,7 @@ class MainWindow(QMainWindow):
             self._global_config.set_active_library(media_type)
 
     # ── Navigation ────────────────────────────────────────────────────
-    _LOG_PAGES = {_PAGE_EXTRACT, _PAGE_SCAN, _PAGE_METADATA,
-                  _PAGE_FAILED, _PAGE_ORGANIZE, _PAGE_HTML}
+    _LOG_PAGES = {_PAGE_EXTRACT, _PAGE_OPERATIONS}
 
     def _on_nav_changed(self, row: int):
         self._stack.setCurrentIndex(row)
@@ -943,7 +902,7 @@ class MainWindow(QMainWindow):
         from modules.gui.workers import ScanWorker
         force = self._scan_force.isChecked()
         w = ScanWorker(self._lib_config, self._plugin, self._log.stream, force=force)
-        self._start_worker(w, self._scan_page)
+        self._start_worker(w, self._scan_run_btn, self._scan_stop_btn, self._scan_progress)
 
     def _run_metadata(self):
         from modules.gui.workers import MetadataWorker
@@ -958,23 +917,23 @@ class MainWindow(QMainWindow):
                 return
         w = MetadataWorker(self._lib_config, self._plugin, self._log.stream,
                            full_collection=full)
-        self._start_worker(w, self._meta_page)
+        self._start_worker(w, self._meta_run_btn, self._meta_stop_btn, self._meta_progress)
 
     def _run_organizer(self):
         from modules.gui.workers import OrganizerWorker
         self._start_worker(
             OrganizerWorker(self._lib_config, self._plugin, self._log.stream),
-            self._org_page,
+            self._org_run_btn, self._org_stop_btn, self._org_progress,
         )
 
     def _run_html(self):
         from modules.gui.workers import HTMLWorker
         self._start_worker(
             HTMLWorker(self._lib_config, self._plugin, self._log.stream),
-            self._html_page,
+            self._html_run_btn, self._html_stop_btn, self._html_progress,
         )
 
-    def _start_worker(self, worker, page=None):
+    def _start_worker(self, worker, run_btn=None, stop_btn=None, progress=None):
         if self._worker and self._worker.isRunning():
             self._status_bar.showMessage('A task is already running.')
             return
@@ -983,14 +942,15 @@ class MainWindow(QMainWindow):
         self._worker.start()
         self._status_bar.showMessage('Running...')
 
-        if page and hasattr(page, '_progress'):
-            self._active_progress = page._progress
-            self._active_run_btn  = page._run_btn
-            self._active_stop_btn = getattr(page, '_stop_btn', None)
-            page._progress.setVisible(True)
-            page._run_btn.setEnabled(False)
-            if self._active_stop_btn:
-                self._active_stop_btn.setEnabled(True)
+        self._active_progress = progress
+        self._active_run_btn  = run_btn
+        self._active_stop_btn = stop_btn
+        if progress:
+            progress.setVisible(True)
+        if run_btn:
+            run_btn.setEnabled(False)
+        if stop_btn:
+            stop_btn.setEnabled(True)
 
     def _stop_worker(self):
         if self._worker and self._worker.isRunning():
