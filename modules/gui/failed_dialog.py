@@ -427,8 +427,10 @@ class FailedItemsDialog(QDialog):
             QMessageBox.information(self, 'No selection', 'Check at least one item.')
             return
         if not self._genres:
+            from modules.core.config_manager import _ROOT
+            genre_path = self._lib_config.genre_file
             QMessageBox.warning(self, 'No genres',
-                                'No genre file configured. Set genre_file in Settings.')
+                                f'Genre file not found:\n{genre_path}\n\nPull latest from git.')
             return
 
         genre, ok = QInputDialog.getItem(
