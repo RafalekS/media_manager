@@ -136,11 +136,14 @@ def _query_with_supplements(primary, supplements, query: str) -> dict:
     """
     Query primary provider. If it returns data, merge supplement data
     to fill in missing fields. Returns normalized dict or None.
+    Records provider_source as the class name that found the primary result.
     """
     result = primary.search_and_extract(query)
 
     if not result or not result.get('name'):
         return None
+
+    result['provider_source'] = type(primary).__name__.replace('Provider', '')
 
     # Fill in missing fields from supplement providers
     for sup in supplements:

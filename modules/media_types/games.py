@@ -66,10 +66,11 @@ class GamesPlugin(MediaPlugin):
     @property
     def columns(self) -> list[tuple]:
         return [
-            ('display_name', 'IGDB Name',    200),
-            ('genre',        'Genre',         120),
-            ('year',         'Year',           60),
-            ('rating',       'Rating',         65),
-            ('description',  'Description',   350),
-            ('full_path',    'Location',      300),
+            ('display_name',    'IGDB Name',    200),
+            ('genre',           'Genre',         120),
+            ('year',            'Year',           60),
+            ('rating',          'Rating',         65),
+            ('provider_source', 'Source',         80),
+            ('description',     'Description',   350),
+            ('full_path',       'Location',      300),
         ]

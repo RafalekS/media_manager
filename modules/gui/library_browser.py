@@ -10,12 +10,162 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QTableView, QHeaderView, QLineEdit, QComboBox, QFrame,
-    QCheckBox, QMessageBox,
+    QCheckBox, QMessageBox, QDialog, QPlainTextEdit, QScrollArea,
 )
 
 _KEY_ROLE = Qt.ItemDataRole.UserRole  # stores metadata dict key on col-0 cell
+
+# Keys that are always read-only in the edit dialog
+_DIALOG_READONLY = frozenset({'full_path', 'provider_source'})
+
+
+# ── Item edit dialog ───────────────────────────────────────────────────────────
+
+class _ItemEditDialog(QDialog):
+    """Full-form editor for a single metadata item."""
+
+    def __init__(self, meta_key: str, item_data: dict, plugin, lib_config,
+                 ui_state=None, parent=None):
+        super().__init__(parent)
+        self._meta_key   = meta_key
+        self._item_data  = dict(item_data)
+        self._plugin     = plugin
+        self._lib_config = lib_config
+        self._ui_state   = ui_state
+        self._fields     = {}   # field_key -> QWidget
+
+        title = item_data.get('original_name') or item_data.get('name', meta_key)
+        self.setWindowTitle(f'Edit — {title}')
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        if ui_state:
+            ui_state.restore_window(self, key='item_edit_dialog', default_w=640, default_h=520)
+        else:
+            self.resize(640, 520)
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(8)
+
+        title_lbl = QLabel(self._item_data.get('original_name') or
+                           self._item_data.get('name', self._meta_key))
+        title_lbl.setProperty('role', 'title')
+        layout.addWidget(title_lbl)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        form_widget = QWidget()
+        form = QFormLayout(form_widget)
+        form.setContentsMargins(0, 4, 0, 4)
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        shown = set()
+
+        # Plugin columns first
+        for key, label, _ in self._plugin.columns:
+            if key in shown:
+                continue
+            shown.add(key)
+            value = str(self._item_data.get(key, '') or '')
+            if key in _DIALOG_READONLY:
+                w = QLineEdit(value)
+                w.setReadOnly(True)
+                w.setProperty('role', 'muted')
+            elif key == 'description':
+                w = QPlainTextEdit(value)
+                w.setFixedHeight(90)
+            else:
+                w = QLineEdit(value)
+            form.addRow(label + ':', w)
+            self._fields[key] = w
+
+        # Extra fields (only shown if non-empty, except provider_source)
+        for key, label in [
+            ('cover_url',       'Cover URL'),
+            ('website_url',     'Website URL'),
+            ('provider_url',    'Provider URL'),
+            ('provider_source', 'Source'),
+        ]:
+            if key in shown:
+                continue
+            value = str(self._item_data.get(key, '') or '')
+            if not value:
+                continue
+            shown.add(key)
+            w = QLineEdit(value)
+            if key in _DIALOG_READONLY:
+                w.setReadOnly(True)
+                w.setProperty('role', 'muted')
+            form.addRow(label + ':', w)
+            self._fields[key] = w
+
+        scroll.setWidget(form_widget)
+        layout.addWidget(scroll, 1)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_save = QPushButton('Save')
+        btn_save.clicked.connect(self._save)
+        btn_cancel = QPushButton('Cancel')
+        btn_cancel.setObjectName('btn_secondary')
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_save)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+
+    def _save(self):
+        updates = {}
+        for key, widget in self._fields.items():
+            if key in _DIALOG_READONLY:
+                continue
+            if isinstance(widget, QPlainTextEdit):
+                updates[key] = widget.toPlainText()
+            else:
+                updates[key] = widget.text()
+
+        meta_file = Path(self._lib_config.metadata_file)
+        try:
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Could not read metadata:\n{e}')
+            return
+
+        items_key = 'processed_items' if 'processed_items' in data else 'processed_games'
+        items = data.get(items_key, {})
+
+        if self._meta_key not in items:
+            QMessageBox.warning(self, 'Not found',
+                                f'Entry {self._meta_key!r} no longer exists in metadata.')
+            return
+
+        items[self._meta_key].update(updates)
+        # Keep display_name / name in sync
+        if 'display_name' in updates:
+            items[self._meta_key]['name'] = updates['display_name']
+
+        data[items_key] = items
+        try:
+            with open(meta_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Could not save metadata:\n{e}')
+            return
+
+        self.accept()
+
+    def done(self, result: int):
+        if self._ui_state:
+            self._ui_state.save_window(self, key='item_edit_dialog')
+        super().done(result)
 
 
 # ── Background loader ─────────────────────────────────────────────────────────
@@ -62,8 +212,8 @@ class LibraryBrowser(QWidget):
     Plugin columns are editable via double-click (except 'full_path').
     """
 
-    # Column keys that must never be inline-edited
-    _READONLY_KEYS = frozenset({'full_path'})
+    # Column keys that must never be inline-edited in the table
+    _READONLY_KEYS = frozenset({'full_path', 'provider_source'})
 
     def __init__(self, lib_config, plugin, ui_state, parent=None):
         super().__init__(parent)
@@ -150,8 +300,9 @@ class LibraryBrowser(QWidget):
         self._table.setModel(self._model)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self._table.setEditTriggers(QTableView.EditTrigger.DoubleClicked)
+        self._table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self._table.setSortingEnabled(False)
+        self._table.doubleClicked.connect(self._open_edit_dialog)
 
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -165,6 +316,12 @@ class LibraryBrowser(QWidget):
 
         # Action row
         act = QHBoxLayout()
+
+        self._btn_edit = QPushButton('Edit')
+        self._btn_edit.setEnabled(False)
+        self._btn_edit.clicked.connect(self._edit_selected)
+        act.addWidget(self._btn_edit)
+
         act.addStretch()
 
         self._btn_delete = QPushButton('Delete Selected')
@@ -269,7 +426,34 @@ class LibraryBrowser(QWidget):
             self._btn_save.setEnabled(True)
 
     def _on_selection_changed(self, selected, _deselected):
-        self._btn_delete.setEnabled(bool(self._table.selectionModel().selectedRows()))
+        has_sel = bool(self._table.selectionModel().selectedRows())
+        self._btn_delete.setEnabled(has_sel)
+        self._btn_edit.setEnabled(has_sel)
+
+    def _edit_selected(self):
+        rows = self._table.selectionModel().selectedRows()
+        if rows:
+            self._open_edit_dialog(rows[0])
+
+    def _open_edit_dialog(self, index):
+        key_item = self._model.item(index.row(), 0)
+        if not key_item:
+            return
+        meta_key = key_item.data(_KEY_ROLE)
+        if not meta_key:
+            return
+
+        # Find the full data dict for this key
+        item_data = next((d for d in self._data if d.get('_key') == meta_key), None)
+        if item_data is None:
+            return
+
+        dlg = _ItemEditDialog(
+            meta_key, item_data, self._plugin, self._lib_config,
+            ui_state=self._ui_state, parent=self.window(),
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.load_data()  # reload to reflect saved changes
 
     def _toggle_wrap(self, checked: bool):
         self._table.setWordWrap(checked)
