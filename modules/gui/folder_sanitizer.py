@@ -118,6 +118,7 @@ class FolderSanitizerDialog(QDialog):
         self._table.setHorizontalHeaderLabels(['', 'Genre', 'Full Path', 'Original Name', 'Cleaned Name'])
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked |
                                     QAbstractItemView.EditTrigger.SelectedClicked)
 
@@ -206,6 +207,7 @@ class FolderSanitizerDialog(QDialog):
     # ── Table population ───────────────────────────────────────────────────────
 
     def _populate_table(self):
+        self._table.setSortingEnabled(False)
         self._table.blockSignals(True)
         self._table.setRowCount(0)
 
@@ -253,6 +255,7 @@ class FolderSanitizerDialog(QDialog):
             visible_rows += 1
 
         self._table.blockSignals(False)
+        self._table.setSortingEnabled(True)
         self._update_status()
 
     def _apply_filter(self):
