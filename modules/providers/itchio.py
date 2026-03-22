@@ -3,6 +3,7 @@ itch.io provider (games supplement).
 Docs: https://itch.io/docs/api/serverside
 Auth: Bearer token in Authorization header.
 Falls back to authenticated web search for adult games excluded from the public API.
+Web search uses session cookie (itchio_token) for adult content visibility.
 """
 
 import difflib
@@ -48,10 +49,9 @@ class ItchIOProvider(MetadataProvider):
 
     def _web_search(self, query: str) -> list:
         """Authenticated web search for adult games excluded from the public API.
-        Matches on URL slug (e.g. 'divine-heel') which is reliable and present in HTML."""
+        Extracts all unique itch.io game URLs independently (no ID pairing),
+        matches by URL slug, then fetches metadata via Open Graph tags."""
         try:
-            # Session cookie gives full browser auth (needed for adult games).
-            # Fall back to Bearer token if no cookie configured.
             req_kwargs = {
                 'params':  {'q': query},
                 'headers': {'User-Agent': 'Mozilla/5.0 (compatible)'},
@@ -65,49 +65,99 @@ class ItchIOProvider(MetadataProvider):
             r = requests.get('https://itch.io/search', **req_kwargs)
             r.raise_for_status()
 
-            # Extract (game_id, url) pairs — slug in URL is the reliable title source
-            pairs = re.findall(
-                r'data-game_id=["\'](\d+)["\'].*?href="(https://[^"]+\.itch\.io/[^"]+)"',
-                r.text, re.DOTALL,
-            )
-            if not pairs:
+            # Extract all unique game URLs — slug in URL is the reliable title source.
+            # Pattern: https://author.itch.io/game-slug (2-segment path = game page)
+            seen, urls = set(), []
+            for url in re.findall(r'href="(https://[^"]+\.itch\.io/[^"#?]+)"', r.text):
+                url = url.rstrip('/')
+                parts = url.split('/')
+                # Only keep game pages (exactly 1 path segment after domain)
+                if len(parts) == 4 and url not in seen:
+                    seen.add(url)
+                    urls.append(url)
+
+            if not urls:
+                print('[itch.io] web search: no game URLs found')
                 return []
 
-            print(f'[itch.io] web search: {len(pairs)} results')
+            print(f'[itch.io] web search: {len(urls)} game URLs found')
 
             q_slug = query.lower().strip().replace(' ', '-')
-            best_id, best_slug, best_score = pairs[0][0], '', -1.0
-            for gid, url in pairs:
-                slug = url.rstrip('/').split('/')[-1].lower()
+            best_url   = urls[0]
+            best_slug  = urls[0].split('/')[-1].lower()
+            best_score = -1.0
+
+            for url in urls:
+                slug = url.split('/')[-1].lower()
                 if slug == q_slug:
-                    best_id, best_slug, best_score = gid, slug, 1.0
+                    best_url, best_slug, best_score = url, slug, 1.0
                     break
                 score = difflib.SequenceMatcher(None, q_slug, slug).ratio()
                 if score > best_score:
                     best_score = score
-                    best_id, best_slug = gid, slug
+                    best_url, best_slug = url, slug
 
-            print(f'[itch.io] best match: slug="{best_slug}" id={best_id} score={best_score:.2f}')
+            print(f'[itch.io] best match: slug="{best_slug}" url={best_url} score={best_score:.2f}')
 
             if best_score < 0.6:
+                print('[itch.io] score below threshold — no match')
                 return []
 
-            game = self._fetch_by_id(best_id)
+            game = self._fetch_from_page(best_url)
             return [game] if game else []
         except Exception as e:
-            print(f'[itch.io] Web search error: {e}')
+            print(f'[itch.io] web search error: {e}')
             return []
 
-    def _fetch_by_id(self, game_id: str):
+    def _fetch_from_page(self, game_url: str) -> dict | None:
+        """Fetch game metadata from its itch.io page via Open Graph tags."""
         try:
-            r = requests.get(
-                f'{self._API_URL}/{self._api_key}/game/{game_id}',
-                headers={'Authorization': f'Bearer {self._api_key}'},
-                timeout=10,
-            )
+            req_kwargs = {
+                'headers': {'User-Agent': 'Mozilla/5.0 (compatible)'},
+                'timeout': 10,
+            }
+            if self._session_cookie:
+                req_kwargs['cookies'] = {'itchio_token': self._session_cookie}
+
+            r = requests.get(game_url, **req_kwargs)
             r.raise_for_status()
-            return r.json().get('game')
-        except Exception:
+            html = r.text
+
+            def og(prop):
+                m = re.search(
+                    rf'<meta[^>]+property=["\']og:{prop}["\'][^>]+content=["\']([^"\']*)["\']',
+                    html, re.IGNORECASE,
+                )
+                if not m:
+                    m = re.search(
+                        rf'<meta[^>]+content=["\']([^"\']*)["\'][^>]+property=["\']og:{prop}["\']',
+                        html, re.IGNORECASE,
+                    )
+                return m.group(1).strip() if m else ''
+
+            title       = og('title')
+            description = og('description')
+            image       = og('image')
+
+            # Fallback title from <title> tag
+            if not title:
+                m = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
+                title = m.group(1).split(' by ')[0].strip() if m else ''
+
+            if not title:
+                # Last resort: derive from slug
+                slug  = game_url.split('/')[-1]
+                title = slug.replace('-', ' ').title()
+
+            return {
+                'title':        title,
+                'short_text':   description,
+                'cover_url':    image,
+                'url':          game_url,
+                'published_at': '',
+            }
+        except Exception as e:
+            print(f'[itch.io] page fetch error: {e}')
             return None
 
     def get_details(self, item_id) -> dict:
