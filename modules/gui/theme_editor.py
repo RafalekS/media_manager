@@ -87,52 +87,73 @@ class ThemeEditor(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
-        self._grid_lay = QVBoxLayout(inner)
-        self._grid_lay.setContentsMargins(0, 0, 0, 0)
-        self._grid_lay.setSpacing(0)
+        self._grid_lay = QGridLayout(inner)
+        self._grid_lay.setContentsMargins(0, 0, 16, 0)
+        self._grid_lay.setHorizontalSpacing(24)
+        self._grid_lay.setVerticalSpacing(8)
+        self._grid_lay.setColumnStretch(0, 1)
+        self._grid_lay.setColumnStretch(1, 1)
+        self._grid_lay.setColumnStretch(2, 1)
         self._build_color_grid()
-        self._grid_lay.addStretch()
         scroll.setWidget(inner)
         main_lay.addWidget(scroll, 1)
 
     def _build_color_grid(self):
-        for group_name, keys in COLOR_GROUPS.items():
+        groups = list(COLOR_GROUPS.items())
+        num_cols = 3
+        # Distribute groups into columns left-to-right, top-to-bottom
+        num_rows = (len(groups) + num_cols - 1) // num_cols
+
+        for i, (group_name, keys) in enumerate(groups):
+            col = i % num_cols
+            row = i // num_cols
+
+            group_widget = QWidget()
+            group_lay = QVBoxLayout(group_widget)
+            group_lay.setContentsMargins(0, 0, 0, 0)
+            group_lay.setSpacing(2)
+
             # Group header
             hdr = QLabel(group_name)
-            hdr.setStyleSheet('font-weight: bold; font-size: 10pt; padding: 8px 0 4px 0;')
-            self._grid_lay.addWidget(hdr)
+            hdr.setStyleSheet('font-weight: bold; font-size: 10pt; padding: 4px 0 4px 0;')
+            group_lay.addWidget(hdr)
 
-            # Grid for this group
-            grid_widget = QWidget()
-            grid = QGridLayout(grid_widget)
-            grid.setContentsMargins(0, 0, 0, 4)
-            grid.setHorizontalSpacing(8)
-            grid.setVerticalSpacing(4)
+            # Color rows grid
+            sub_widget = QWidget()
+            sub_grid = QGridLayout(sub_widget)
+            sub_grid.setContentsMargins(0, 0, 0, 0)
+            sub_grid.setHorizontalSpacing(6)
+            sub_grid.setVerticalSpacing(3)
+            sub_grid.setColumnStretch(3, 1)
 
             for row_idx, key in enumerate(keys):
                 label_text = COLOR_LABELS.get(key, key)
 
                 lbl = QLabel(label_text)
                 lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                lbl.setMinimumWidth(160)
-                grid.addWidget(lbl, row_idx, 0)
+                lbl.setMinimumWidth(130)
+                sub_grid.addWidget(lbl, row_idx, 0)
 
                 swatch = QPushButton()
                 swatch.setFixedSize(40, 22)
                 swatch.setObjectName(f'swatch_{key}')
                 swatch.clicked.connect(lambda checked, k=key: self._pick_color(k))
-                grid.addWidget(swatch, row_idx, 1)
+                sub_grid.addWidget(swatch, row_idx, 1)
 
                 hex_edit = QLineEdit()
                 hex_edit.setMaximumWidth(90)
                 hex_edit.setPlaceholderText('#rrggbb')
                 hex_edit.editingFinished.connect(lambda k=key: self._on_hex_edited(k))
-                grid.addWidget(hex_edit, row_idx, 2)
+                sub_grid.addWidget(hex_edit, row_idx, 2)
 
-                grid.setColumnStretch(3, 1)
                 self._color_widgets[key] = (swatch, hex_edit)
 
-            self._grid_lay.addWidget(grid_widget)
+            group_lay.addWidget(sub_widget)
+            group_lay.addStretch()
+            self._grid_lay.addWidget(group_widget, row, col, Qt.AlignmentFlag.AlignTop)
+
+        # Push everything to the top
+        self._grid_lay.setRowStretch(num_rows, 1)
 
     # ── Combo management ──────────────────────────────────────────────
 
