@@ -60,14 +60,18 @@ class ItchIOProvider(MetadataProvider):
             r.raise_for_status()
 
             game_ids = re.findall(r'data-game_id=["\'](\d+)["\']', r.text)
-            titles   = re.findall(r'class="[^"]*game_title[^"]*"[^>]*>\s*([^<]+?)\s*<', r.text)
 
             if not game_ids:
                 return []
 
-            # Pair IDs with titles (appear in the same order in the HTML)
-            pairs = list(zip(game_ids, titles)) if len(titles) == len(game_ids) else [(gid, '') for gid in game_ids]
-            print(f'[itch.io] web search: {len(pairs)} results')
+            # DEBUG: show HTML around first game_id to find title class
+            m = re.search(r'data-game_id=["\']' + game_ids[0] + r'["\']', r.text)
+            if m:
+                snippet = r.text[m.start():m.start()+600].replace('\n', ' ')
+                print(f'[itch.io] HTML snippet: {snippet[:400]}')
+
+            titles   = re.findall(r'class="[^"]*game_title[^"]*"[^>]*>\s*([^<]+?)\s*<', r.text)
+            print(f'[itch.io] web search: {len(game_ids)} IDs, {len(titles)} titles extracted')
 
             # Pick best matching title
             q = query.lower().strip()
