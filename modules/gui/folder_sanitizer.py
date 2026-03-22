@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
     QAbstractItemView, QSizePolicy as QSP, QProgressBar,
-    QMessageBox, QFrame,
+    QMessageBox, QFrame, QApplication,
 )
 
 from modules.gui.ui_state import UIState
@@ -74,6 +74,7 @@ class FolderSanitizerDialog(QDialog):
         super().__init__(parent)
         self._lib_config = lib_config
         self._rows: list[dict] = []   # {genre, orig, folder_path, cleaned}
+        self._last_checked_row = None
         self._ui_state = UIState(GlobalConfig().ui_state_path())
 
         self._save_timer = QTimer()
@@ -141,7 +142,6 @@ class FolderSanitizerDialog(QDialog):
         self._table.setHorizontalHeaderLabels(['', 'Genre', 'Full Path', 'Original Name', 'Cleaned Name'])
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked |
                                     QAbstractItemView.EditTrigger.SelectedClicked)
 
@@ -305,18 +305,21 @@ class FolderSanitizerDialog(QDialog):
         self._update_status()
 
     def _on_item_clicked(self, item: QTableWidgetItem):
-        """Propagate checkbox state to all selected rows when col 0 is clicked."""
         if item.column() != _COL_CHECK:
             return
+        row = item.row()
         state = item.checkState()
-        selected_rows = {idx.row() for idx in self._table.selectionModel().selectedRows()}
-        selected_rows.add(item.row())
-        self._table.blockSignals(True)
-        for r in selected_rows:
-            chk = self._table.item(r, _COL_CHECK)
-            if chk:
-                chk.setCheckState(state)
-        self._table.blockSignals(False)
+        if (self._last_checked_row is not None
+                and QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier):
+            lo = min(self._last_checked_row, row)
+            hi = max(self._last_checked_row, row)
+            self._table.itemChanged.disconnect(self._on_item_changed)
+            for r in range(lo, hi + 1):
+                chk = self._table.item(r, _COL_CHECK)
+                if chk:
+                    chk.setCheckState(state)
+            self._table.itemChanged.connect(self._on_item_changed)
+        self._last_checked_row = row
         self._update_status()
 
     # ── Select helpers ─────────────────────────────────────────────────────────
