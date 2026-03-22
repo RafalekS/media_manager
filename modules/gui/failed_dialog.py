@@ -22,14 +22,13 @@ from PyQt6.QtWidgets import (
 
 
 class _PickResultDialog(QDialog):
-    """Show all provider search results and let the user pick one."""
+    """Show pre-extracted provider results and let the user pick one."""
 
-    def __init__(self, query: str, results: list, provider, parent=None):
+    def __init__(self, query: str, candidates: list, parent=None):
         super().__init__(parent)
         self.selected_result = None
-        self._provider = provider
         self.setWindowTitle(f'Pick match — {query}')
-        self.resize(520, 320)
+        self.resize(560, 340)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
@@ -39,18 +38,16 @@ class _PickResultDialog(QDialog):
         lay.addWidget(QLabel('Double-click or select and click Pick:'))
 
         self._list = QListWidget()
-        for r in results:
-            name = r.get('name', '?')
-            year = ''
-            ts = r.get('first_release_date')
-            if ts:
-                try:
-                    from datetime import datetime, timezone
-                    year = str(datetime.fromtimestamp(ts, tz=timezone.utc).year)
-                except Exception:
-                    pass
-            text = f'{name}  ({year})' if year else name
-            item = QListWidgetItem(text)
+        for r in candidates:
+            name   = r.get('name', '?')
+            year   = r.get('year', '') or ''
+            source = r.get('provider_source', '')
+            parts  = [name]
+            if year:
+                parts.append(f'({year})')
+            if source:
+                parts.append(f'[{source}]')
+            item = QListWidgetItem('  '.join(parts))
             item.setData(Qt.ItemDataRole.UserRole, r)
             self._list.addItem(item)
         self._list.doubleClicked.connect(self._pick)
@@ -71,8 +68,7 @@ class _PickResultDialog(QDialog):
         item = self._list.currentItem()
         if not item:
             return
-        raw = item.data(Qt.ItemDataRole.UserRole)
-        self.selected_result = self._provider.extract(raw)
+        self.selected_result = item.data(Qt.ItemDataRole.UserRole)
         self.accept()
 
 
@@ -207,12 +203,6 @@ class FailedItemsDialog(QDialog):
         self._btn_retry = QPushButton('Retry for Selected')
         self._btn_retry.clicked.connect(self._retry_selected)
         bar.addWidget(self._btn_retry)
-
-        self._btn_pick = QPushButton('Pick Match')
-        self._btn_pick.setObjectName('btn_secondary')
-        self._btn_pick.setToolTip('Search and manually pick from all results for each selected item')
-        self._btn_pick.clicked.connect(self._pick_match)
-        bar.addWidget(self._btn_pick)
 
         bar.addStretch()
 
@@ -534,17 +524,57 @@ class FailedItemsDialog(QDialog):
                         si.setForeground(Qt.GlobalColor.red)
                 break
 
-    def _on_retry_done(self, success: bool, message: str, found_results: dict):
+    def _on_retry_done(self, success: bool, message: str,
+                       auto_results: dict, multi_candidates: dict):
         self._progress.setVisible(False)
         self._set_buttons_enabled(True)
         if self._worker is not None:
             self._finished_workers.append(self._worker)
             QTimer.singleShot(0, self._drop_finished_workers)
         self._worker = None
-        self._pending_results = found_results
+
+        self._pending_results.update(auto_results)
         self._append_retry_log(f'\n[DONE] {message}\n')
-        if found_results:
-            self._btn_save_found.setText(f'Save Found ({len(found_results)})')
+
+        # Show pick dialog for each item with multiple candidates
+        for key, candidates in multi_candidates.items():
+            # Find original search name for the dialog title
+            search_name = key
+            for row in range(self._table.rowCount()):
+                chk = self._table.item(row, self._COL_SEL)
+                if chk:
+                    info = chk.data(Qt.ItemDataRole.UserRole)
+                    if info and info.get('key') == key:
+                        clean = self._table.item(row, self._COL_CLEAN)
+                        search_name = clean.text() if clean else key
+                        break
+
+            dlg = _PickResultDialog(search_name, candidates, self)
+            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_result:
+                result = dlg.selected_result
+                orig = candidates[0].get('original_name', key)
+                result['original_name'] = orig
+                result['found']         = True
+                result['igdb_found']    = True
+                result['manual']        = False
+                self._pending_results[key] = result
+                self._append_retry_log(f'  Picked: {result.get("name", "")}\n')
+                # Update status in table
+                for row in range(self._table.rowCount()):
+                    chk = self._table.item(row, self._COL_SEL)
+                    if chk:
+                        info = chk.data(Qt.ItemDataRole.UserRole)
+                        if info and info.get('key') == key:
+                            si = self._table.item(row, self._COL_STATUS)
+                            if si:
+                                si.setText(f'Picked: {result.get("name", "")}')
+                                si.setForeground(Qt.GlobalColor.darkGreen)
+                            break
+            else:
+                self._append_retry_log(f'  Skipped pick for: {search_name}\n')
+
+        if self._pending_results:
+            self._btn_save_found.setText(f'Save Found ({len(self._pending_results)})')
             self._btn_save_found.setVisible(True)
 
     def _save_found(self):
@@ -586,68 +616,12 @@ class FailedItemsDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Failed to save:\n{e}')
 
-    def _pick_match(self):
-        selected = self._get_checked_rows()
-        if not selected:
-            QMessageBox.information(self, 'No selection', 'Check at least one item.')
-            return
-
-        try:
-            from modules.providers import get_provider_class
-            cls      = get_provider_class(self._lib_config.primary_provider)
-            provider = cls(self._lib_config.api)
-            provider.authenticate()
-        except Exception as e:
-            QMessageBox.critical(self, 'Error', f'Could not connect to provider:\n{e}')
-            return
-
-        for row, info in selected:
-            clean_item  = self._table.item(row, self._COL_CLEAN)
-            search_name = clean_item.text().strip() if clean_item else info['key']
-
-            try:
-                results = provider.search(search_name)
-            except Exception as e:
-                QMessageBox.warning(self, 'Search failed', f'{search_name}:\n{e}')
-                continue
-
-            if not results:
-                QMessageBox.information(
-                    self, 'No results', f'No results found for: {search_name}'
-                )
-                continue
-
-            dlg = _PickResultDialog(search_name, results, provider, self)
-            if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_result:
-                continue  # user skipped this item
-
-            key    = info['key']
-            result = dlg.selected_result
-            result['original_name'] = info.get('original_name', key)
-            result['found']         = True
-            result['igdb_found']    = True
-            result['manual']        = False
-            self._pending_results[key] = result
-
-            si = self._table.item(row, self._COL_STATUS)
-            if si:
-                si.setText(f'Picked: {result.get("name", "")}')
-                si.setForeground(Qt.GlobalColor.darkGreen)
-
-            chk = self._table.item(row, self._COL_SEL)
-            if chk:
-                chk.setCheckState(Qt.CheckState.Unchecked)
-
-        if self._pending_results:
-            self._btn_save_found.setText(f'Save Found ({len(self._pending_results)})')
-            self._btn_save_found.setVisible(True)
-
     def _drop_finished_workers(self):
         self._finished_workers.clear()
 
     def _set_buttons_enabled(self, enabled: bool):
         for btn in (self._btn_manual, self._btn_skip, self._btn_retry,
-                    self._btn_pick, self._btn_select_all, self._btn_clear_sel):
+                    self._btn_select_all, self._btn_clear_sel):
             btn.setEnabled(enabled)
 
     # ── Retry log ─────────────────────────────────────────────────────

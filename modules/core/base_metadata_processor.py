@@ -174,6 +174,50 @@ def _query_with_supplements(primary, supplements, query: str) -> dict:
     return None
 
 
+def _collect_candidates(primary, supplements, query: str) -> list:
+    """
+    Collect ALL extracted results from primary (if any) or supplements.
+    Returns a list of extracted dicts so the caller can let the user pick.
+    Each result has 'provider_source' set.
+    """
+    primary_name = type(primary).__name__.replace('Provider', '')
+    candidates = []
+
+    try:
+        raw_results = primary.search(query)
+        for raw in raw_results:
+            extracted = primary.extract(raw)
+            if extracted and extracted.get('name'):
+                extracted['provider_source'] = primary_name
+                candidates.append(extracted)
+    except Exception as e:
+        print(f'  [{primary_name}] Error: {e}')
+
+    if candidates:
+        print(f'  [{primary_name}] {len(candidates)} result(s)')
+        return candidates
+
+    print(f'  [{primary_name}] No match — trying supplements')
+    for sup in supplements:
+        sup_name = type(sup).__name__.replace('Provider', '')
+        try:
+            raw_results = sup.search(query)
+            for raw in raw_results:
+                extracted = sup.extract(raw)
+                if extracted and extracted.get('name'):
+                    extracted['provider_source'] = sup_name
+                    candidates.append(extracted)
+            if candidates:
+                print(f'  [{sup_name}] {len(candidates)} result(s)')
+                return candidates
+            else:
+                print(f'  [{sup_name}] No match')
+        except Exception as e:
+            print(f'  [{sup_name}] Error: {e}')
+
+    return []
+
+
 def _merge_supplement(primary: dict, supplement: dict):
     """Fill missing fields in primary dict from supplement (in-place)."""
     for key in ('description', 'cover_url', 'genre', 'genres', 'rating', 'year', 'website_url'):

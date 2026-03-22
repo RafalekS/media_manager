@@ -190,8 +190,8 @@ class MetadataWorker(_StoppableMixin, QThread):
 class MetadataRetryWorker(_StoppableMixin, QThread):
     """Re-run metadata lookup for a specific list of failed items.
     Does NOT save to disk — dialog receives results and saves only on user confirmation."""
-    item_result = pyqtSignal(str, bool, str)   # key, found, display_name
-    finished    = pyqtSignal(bool, str, dict)  # success, message, {key: result_dict}
+    item_result = pyqtSignal(str, bool, str)         # key, found, display_name
+    finished    = pyqtSignal(bool, str, dict, dict)  # success, message, auto_results, multi_candidates
 
     def __init__(self, lib_config, plugin, stream, retry_items: list):
         _StoppableMixin.__init__(self)
@@ -235,7 +235,8 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
                 for sup in supplements:
                     sup.authenticate()
 
-                found_results = {}  # key -> result dict — NOT saved yet
+                auto_results     = {}  # key -> result dict (1 candidate — auto-accepted)
+                multi_candidates = {}  # key -> [result, ...] (>1 — user must pick)
                 total = len(self._retry_items)
 
                 for i, entry in enumerate(self._retry_items, 1):
@@ -250,35 +251,43 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
                     print(f'[{i}/{total}] Retrying: {search_name}')
 
                     try:
-                        from modules.core.base_metadata_processor import _query_with_supplements
-                        result = _query_with_supplements(primary, supplements, search_name)
+                        from modules.core.base_metadata_processor import _collect_candidates
+                        candidates = _collect_candidates(primary, supplements, search_name)
                     except Exception as e:
                         print(f'  Error: {e}')
-                        result = None
+                        candidates = []
 
-                    if result:
+                    if not candidates:
+                        print('  Still not found.')
+                        self.item_result.emit(key, False, '')
+                    elif len(candidates) == 1:
+                        result = candidates[0]
                         result['original_name'] = orig
                         result['found']         = True
                         result['igdb_found']    = True
                         result['manual']        = False
-                        found_results[key] = result
+                        auto_results[key] = result
                         print(f'  Found: {result.get("name", "")}')
                         self.item_result.emit(key, True, result.get('name', ''))
                     else:
-                        print('  Still not found.')
-                        self.item_result.emit(key, False, '')
+                        for c in candidates:
+                            c['original_name'] = orig
+                        multi_candidates[key] = candidates
+                        print(f'  {len(candidates)} candidates — awaiting user pick')
+                        self.item_result.emit(key, True, f'{len(candidates)} candidates found')
 
                     time.sleep(self._lib_config.data.get('rate_limit', 0.25))
 
-                self.finished.emit(
-                    True,
-                    f'{len(found_results)}/{total} found — review results then click Save Found.',
-                    found_results,
-                )
+                total_found = len(auto_results) + len(multi_candidates)
+                msg = f'{total_found}/{total} found'
+                if multi_candidates:
+                    msg += f' ({len(multi_candidates)} need picking)'
+                msg += ' — review results then click Save Found.'
+                self.finished.emit(True, msg, auto_results, multi_candidates)
 
             except Exception as e:
                 traceback.print_exc()
-                self.finished.emit(False, str(e), {})
+                self.finished.emit(False, str(e), {}, {})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
