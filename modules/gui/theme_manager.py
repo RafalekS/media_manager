@@ -31,6 +31,10 @@ _BUILTIN = {
         input_border    = '#cbd5e1',
         input_fg        = '#0f172a',
         input_focus     = '#2563eb',
+        check_bg        = '#ffffff',
+        check_border    = '#cbd5e1',
+        check_checked   = '#2563eb',
+        check_mark      = '#ffffff',
         grp_border      = '#e2e8f0',
         grp_title       = '#475569',
         progress_bg     = '#e2e8f0',
@@ -70,6 +74,10 @@ _BUILTIN = {
         input_border    = '#383c4a',
         input_fg        = '#e5e7eb',
         input_focus     = '#4f46e5',
+        check_bg        = '#1c1e26',
+        check_border    = '#383c4a',
+        check_checked   = '#4f46e5',
+        check_mark      = '#ffffff',
         grp_border      = '#383c4a',
         grp_title       = '#9ca3af',
         progress_bg     = '#383c4a',
@@ -109,6 +117,10 @@ _BUILTIN = {
         input_border    = '#cbd5e1',
         input_fg        = '#0f172a',
         input_focus     = '#0ea5e9',
+        check_bg        = '#ffffff',
+        check_border    = '#cbd5e1',
+        check_checked   = '#0ea5e9',
+        check_mark      = '#ffffff',
         grp_border      = '#e2e8f0',
         grp_title       = '#475569',
         progress_bg     = '#e2e8f0',
@@ -148,6 +160,10 @@ _BUILTIN = {
         input_border    = '#30363d',
         input_fg        = '#c9d1d9',
         input_focus     = '#7c3aed',
+        check_bg        = '#0d1117',
+        check_border    = '#30363d',
+        check_checked   = '#7c3aed',
+        check_mark      = '#ffffff',
         grp_border      = '#30363d',
         grp_title       = '#8b949e',
         progress_bg     = '#30363d',
@@ -187,6 +203,10 @@ _BUILTIN = {
         input_border    = '#ce93d8',
         input_fg        = '#37474f',
         input_focus     = '#7c4dff',
+        check_bg        = '#ffffff',
+        check_border    = '#ce93d8',
+        check_checked   = '#7c4dff',
+        check_mark      = '#ffffff',
         grp_border      = '#e1bee7',
         grp_title       = '#7e57c2',
         progress_bg     = '#e8eaf6',
@@ -224,6 +244,8 @@ COLOR_LABELS = {
     'text_primary': 'Primary Text', 'text_muted': 'Muted Text',
     'input_bg': 'Input Background', 'input_border': 'Input Border',
     'input_fg': 'Input Text', 'input_focus': 'Input Focus Border',
+    'check_bg': 'Checkbox Background', 'check_border': 'Checkbox Border',
+    'check_checked': 'Checkbox Checked Fill', 'check_mark': 'Checkbox Tick Color',
     'grp_border': 'Group Border', 'grp_title': 'Group Title',
     'progress_bg': 'Progress Background', 'statusbar_bg': 'Status Bar Bg',
     'statusbar_fg': 'Status Bar Text', 'sec_bg': 'Secondary Btn Bg',
@@ -241,6 +263,7 @@ COLOR_GROUPS = {
     'Accent':   ['accent', 'accent_hover', 'accent_pressed', 'accent_disabled', 'accent_text'],
     'Buttons':  ['sec_bg', 'sec_fg', 'sec_border', 'danger', 'danger_hover'],
     'Input':    ['input_bg', 'input_border', 'input_fg', 'input_focus'],
+    'Checkbox': ['check_bg', 'check_border', 'check_checked', 'check_mark'],
     'Table':    ['table_bg', 'table_alt', 'table_sel', 'table_sel_fg', 'header_bg', 'header_fg'],
     'Misc':     ['grp_border', 'grp_title', 'progress_bg', 'statusbar_bg', 'statusbar_fg'],
 }
@@ -564,6 +587,32 @@ QRadioButton, QCheckBox {{
     spacing: 6px;
     color: {t['text_primary']};
     background: transparent;
+}}
+QCheckBox::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {t['check_border']};
+    border-radius: 2px;
+    background: {t['check_bg']};
+}}
+QCheckBox::indicator:checked {{
+    background: {t['check_checked']};
+    border-color: {t['check_checked']};
+    image: none;
+}}
+QCheckBox::indicator:checked::after {{
+    color: {t['check_mark']};
+}}
+QRadioButton::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {t['check_border']};
+    border-radius: 7px;
+    background: {t['check_bg']};
+}}
+QRadioButton::indicator:checked {{
+    background: {t['check_checked']};
+    border-color: {t['check_checked']};
 }}
 
 /* ── Frame separators ─────────────────────────────────────────────── */
