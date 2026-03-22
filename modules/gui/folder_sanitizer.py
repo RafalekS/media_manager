@@ -29,7 +29,7 @@ _NOISE_WORDS = {
     'EMPRESS', 'FCKDRM', 'KAOS', 'NOFEAR', 'DARKSiDERS', 'DARKSIDERS',
     'DOGE', 'FIGA', 'GOLDBERG',
     # Unambiguous technical noise
-    'Update', 'Repack', 'MULTi',
+    'Update', 'Repack', 'MULTi', 'GOG',
 }
 
 # Compiled pattern: whole-word match for each noise word (case-insensitive)
