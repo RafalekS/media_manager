@@ -409,20 +409,32 @@ class FailedItemsDialog(QDialog):
         if not selected:
             QMessageBox.information(self, 'No selection', 'Check at least one item.')
             return
-        if not self._genres:
-            from modules.core.config_manager import _ROOT
-            genre_path = self._lib_config.genre_file
-            QMessageBox.warning(self, 'No genres',
-                                f'Genre file not found:\n{genre_path}\n\nPull latest from git.')
-            return
-
         genre, ok = QInputDialog.getItem(
             self, 'Select Genre',
-            f'Assign genre for {len(selected)} selected item(s):',
-            self._genres, 0, False,
+            f'Assign genre for {len(selected)} selected item(s):\n'
+            '(Type a new genre name to create it)',
+            self._genres, 0, True,   # editable=True allows typing new genre
         )
+        genre = genre.strip()
         if not ok or not genre:
             return
+
+        # Save new genre to the genres file if it doesn't exist yet
+        if genre not in self._genres:
+            genre_file = self._lib_config.genre_file
+            if genre_file and Path(genre_file).exists():
+                try:
+                    import json
+                    with open(genre_file, 'r', encoding='utf-8') as f:
+                        genres_data = json.load(f)
+                    genres_data[genre] = genre
+                    with open(genre_file, 'w', encoding='utf-8') as f:
+                        json.dump(genres_data, f, indent=2, ensure_ascii=False)
+                    self._genres.append(genre)
+                    self._genres.sort()
+                except Exception as e:
+                    QMessageBox.warning(self, 'Warning',
+                        f"Genre '{genre}' will be used but couldn't be saved to genres file:\n{e}")
 
         try:
             from modules.core.db import LibraryDB
