@@ -27,7 +27,8 @@ from PyQt6.QtWidgets import (
 )
 
 from modules.gui.log_widget import LogWidget
-from modules.gui.theme_manager import THEME_NAMES, build_stylesheet, _THEMES
+from modules.gui.theme_manager import THEME_NAMES, build_stylesheet, _THEMES, get_theme_names
+from modules.gui.theme_editor import ThemeEditor
 from modules.gui.ui_state import UIState
 from modules.gui.settings_page import SettingsPage
 
@@ -39,6 +40,7 @@ _PAGE_EXTRACT     = 1
 _PAGE_OPERATIONS  = 2
 _PAGE_LIBRARY     = 3
 _PAGE_SETTINGS    = 4
+_PAGE_THEMES      = 5
 
 
 # ── Stat card ──────────────────────────────────────────────────────────────────
@@ -197,6 +199,9 @@ class MainWindow(QMainWindow):
         self._operations_page  = self._build_operations_page()
         self._browser_placeholder = QWidget()
         self._settings_page    = SettingsPage()
+        self._theme_editor     = ThemeEditor()
+        self._theme_editor.theme_applied.connect(self._on_theme_editor_applied)
+        self._theme_editor.themes_changed.connect(self._on_themes_changed)
 
         for page in (
             self._dash_page,            # 0
@@ -204,6 +209,7 @@ class MainWindow(QMainWindow):
             self._operations_page,      # 2
             self._browser_placeholder,  # 3
             self._settings_page,        # 4
+            self._theme_editor,         # 5
         ):
             self._stack.addWidget(page)
 
@@ -249,7 +255,7 @@ class MainWindow(QMainWindow):
         self._nav.setObjectName('nav_list')
         for label in [
             'Dashboard', 'Extract', 'Operations',
-            'Library', 'Settings',
+            'Library', 'Settings', 'Themes',
         ]:
             self._nav.addItem(QListWidgetItem(label))
         self._nav.setCurrentRow(0)
@@ -263,7 +269,7 @@ class MainWindow(QMainWindow):
         self._theme_combo = QComboBox()
         self._theme_combo.setStyleSheet('combobox-popup: 0; margin: 0 10px; padding: 4px 8px;')
         self._theme_combo.view().setStyleSheet('max-height: 300px;')
-        self._theme_combo.addItems(THEME_NAMES)
+        self._theme_combo.addItems(get_theme_names())
         idx = self._theme_combo.findText(self._global_config.theme)
         if idx >= 0:
             self._theme_combo.setCurrentIndex(idx)
@@ -739,7 +745,7 @@ class MainWindow(QMainWindow):
             self._global_config.set_active_library(media_type)
 
     # ── Navigation ────────────────────────────────────────────────────
-    _LOG_PAGES = {_PAGE_EXTRACT, _PAGE_OPERATIONS}
+    _LOG_PAGES = {_PAGE_EXTRACT, _PAGE_OPERATIONS}  # Themes page intentionally excluded
 
     def _on_nav_changed(self, row: int):
         self._stack.setCurrentIndex(row)
@@ -1003,6 +1009,26 @@ class MainWindow(QMainWindow):
         self._apply_theme(name)
         self._set_window_icon(name)
         self._global_config.set_theme(name)
+
+    def _on_theme_editor_applied(self, name: str):
+        self._apply_theme(name)
+        self._set_window_icon(name)
+        self._global_config.set_theme(name)
+        idx = self._theme_combo.findText(name)
+        if idx >= 0:
+            self._theme_combo.blockSignals(True)
+            self._theme_combo.setCurrentIndex(idx)
+            self._theme_combo.blockSignals(False)
+
+    def _on_themes_changed(self):
+        current = self._theme_combo.currentText()
+        self._theme_combo.blockSignals(True)
+        self._theme_combo.clear()
+        self._theme_combo.addItems(get_theme_names())
+        idx = self._theme_combo.findText(current)
+        if idx >= 0:
+            self._theme_combo.setCurrentIndex(idx)
+        self._theme_combo.blockSignals(False)
 
     # ── Close ─────────────────────────────────────────────────────────
     def closeEvent(self, event):

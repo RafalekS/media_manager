@@ -1,11 +1,15 @@
 """
 Theme manager — 5 built-in themes.
 build_stylesheet(name) returns a complete QSS string.
+Themes are persisted as JSON files in config/themes/.
 """
 
-THEME_NAMES = ['Light', 'Dark', 'Slate', 'Midnight', 'Pastel']
+import json
+from pathlib import Path
 
-_THEMES = {
+_THEMES_DIR = Path(__file__).parent.parent.parent / 'config' / 'themes'
+
+_BUILTIN = {
     'Light': dict(
         sidebar_bg      = '#1e293b',
         sidebar_text    = '#94a3b8',
@@ -203,9 +207,93 @@ _THEMES = {
     ),
 }
 
+# Backward compat — used by main_window for card colors
+_THEMES = _BUILTIN
+
+# Backward compat list
+THEME_NAMES = list(_BUILTIN.keys())
+
+COLOR_LABELS = {
+    'sidebar_bg': 'Sidebar Background', 'sidebar_text': 'Sidebar Text',
+    'sidebar_sel_bg': 'Sidebar Selected Bg', 'sidebar_sel_fg': 'Sidebar Selected Text',
+    'sidebar_hover': 'Sidebar Hover Bg', 'sidebar_hover_fg': 'Sidebar Hover Text',
+    'content_bg': 'Content Background', 'card_bg': 'Card Background',
+    'card_border': 'Card Border', 'accent': 'Accent',
+    'accent_hover': 'Accent Hover', 'accent_pressed': 'Accent Pressed',
+    'accent_disabled': 'Accent Disabled', 'accent_text': 'Accent Text',
+    'text_primary': 'Primary Text', 'text_muted': 'Muted Text',
+    'input_bg': 'Input Background', 'input_border': 'Input Border',
+    'input_fg': 'Input Text', 'input_focus': 'Input Focus Border',
+    'grp_border': 'Group Border', 'grp_title': 'Group Title',
+    'progress_bg': 'Progress Background', 'statusbar_bg': 'Status Bar Bg',
+    'statusbar_fg': 'Status Bar Text', 'sec_bg': 'Secondary Btn Bg',
+    'sec_fg': 'Secondary Btn Text', 'sec_border': 'Secondary Btn Border',
+    'danger': 'Danger', 'danger_hover': 'Danger Hover', 'sep': 'Separator',
+    'table_bg': 'Table Background', 'table_alt': 'Table Alt Row',
+    'table_sel': 'Table Selection', 'table_sel_fg': 'Table Selection Text',
+    'header_bg': 'Header Background', 'header_fg': 'Header Text',
+}
+
+COLOR_GROUPS = {
+    'Sidebar':  ['sidebar_bg', 'sidebar_text', 'sidebar_sel_bg', 'sidebar_sel_fg', 'sidebar_hover', 'sidebar_hover_fg'],
+    'Content':  ['content_bg', 'card_bg', 'card_border', 'sep'],
+    'Text':     ['text_primary', 'text_muted'],
+    'Accent':   ['accent', 'accent_hover', 'accent_pressed', 'accent_disabled', 'accent_text'],
+    'Buttons':  ['sec_bg', 'sec_fg', 'sec_border', 'danger', 'danger_hover'],
+    'Input':    ['input_bg', 'input_border', 'input_fg', 'input_focus'],
+    'Table':    ['table_bg', 'table_alt', 'table_sel', 'table_sel_fg', 'header_bg', 'header_fg'],
+    'Misc':     ['grp_border', 'grp_title', 'progress_bg', 'statusbar_bg', 'statusbar_fg'],
+}
+
+
+def load_themes() -> dict:
+    """Load all themes from config/themes/*.json. Seeds from built-ins if empty."""
+    _THEMES_DIR.mkdir(parents=True, exist_ok=True)
+    json_files = list(_THEMES_DIR.glob('*.json'))
+    if not json_files:
+        # Seed built-ins to disk
+        for name, data in _BUILTIN.items():
+            _write_theme_file(name, data)
+        return {name: dict(data) for name, data in _BUILTIN.items()}
+
+    themes = {}
+    for f in sorted(json_files):
+        try:
+            with open(f, 'r', encoding='utf-8') as fh:
+                themes[f.stem] = json.load(fh)
+        except Exception:
+            pass
+    return themes
+
+
+def _write_theme_file(name: str, data: dict):
+    _THEMES_DIR.mkdir(parents=True, exist_ok=True)
+    path = _THEMES_DIR / f'{name}.json'
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def save_theme(name: str, data: dict):
+    """Write theme to config/themes/<name>.json"""
+    _write_theme_file(name, data)
+
+
+def delete_theme(name: str):
+    """Delete config/themes/<name>.json"""
+    path = _THEMES_DIR / f'{name}.json'
+    if path.exists():
+        path.unlink()
+
+
+def get_theme_names() -> list:
+    """Return sorted list of theme names."""
+    themes = load_themes()
+    return sorted(themes.keys())
+
 
 def build_stylesheet(theme_name: str) -> str:
-    t = _THEMES.get(theme_name, _THEMES['Light'])
+    themes = load_themes()
+    t = themes.get(theme_name, themes.get('Light', _BUILTIN['Light']))
     return f"""
 /* ── Base ─────────────────────────────────────────────────────────── */
 QMainWindow, QDialog, QWidget {{
