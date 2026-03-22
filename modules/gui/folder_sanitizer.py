@@ -10,13 +10,16 @@ import os
 import re
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSortFilterProxyModel
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
     QAbstractItemView, QSizePolicy as QSP, QProgressBar,
     QMessageBox, QFrame,
 )
+
+from modules.gui.ui_state import UIState
+from modules.core.config_manager import GlobalConfig
 
 # ── Release-tag / noise words to strip ────────────────────────────────────────
 _NOISE_WORDS = {
@@ -63,16 +66,36 @@ _COL_ORIG    = 3
 _COL_CLEANED = 4
 
 
+_STATE_KEY = 'folder_sanitizer_table'
+
+
 class FolderSanitizerDialog(QDialog):
     def __init__(self, lib_config, parent=None):
         super().__init__(parent)
         self._lib_config = lib_config
         self._rows: list[dict] = []   # {genre, orig, folder_path, cleaned}
+        self._ui_state = UIState(GlobalConfig().ui_state_path())
+
+        self._save_timer = QTimer()
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(500)
+        self._save_timer.timeout.connect(self._save_table_state)
 
         self.setWindowTitle('Sanitize Folder Names')
         self.resize(1100, 680)
         self._build_ui()
         self._scan()
+
+    def closeEvent(self, event):
+        self._save_timer.stop()
+        self._save_table_state()
+        super().closeEvent(event)
+
+    def _save_table_state(self):
+        self._ui_state.save_table(self._table, _STATE_KEY)
+
+    def _schedule_save(self):
+        self._save_timer.start()
 
     # ── UI ─────────────────────────────────────────────────────────────────────
 
@@ -131,9 +154,13 @@ class FolderSanitizerDialog(QDialog):
         self._table.setColumnWidth(_COL_ORIG,    280)
         self._table.setColumnWidth(_COL_CLEANED, 280)
         hdr.setStretchLastSection(False)
+        hdr.sectionResized.connect(lambda *_: self._schedule_save())
+        hdr.sectionMoved.connect(lambda *_: self._schedule_save())
+        hdr.sortIndicatorChanged.connect(lambda *_: self._schedule_save())
 
         self._table.verticalHeader().setVisible(False)
         self._table.itemChanged.connect(self._on_item_changed)
+        self._table.itemClicked.connect(self._on_item_clicked)
 
         lay.addWidget(self._table, 1)
 
@@ -256,12 +283,13 @@ class FolderSanitizerDialog(QDialog):
 
         self._table.blockSignals(False)
         self._table.setSortingEnabled(True)
+        self._ui_state.restore_table(self._table, _STATE_KEY)
         self._update_status()
 
     def _apply_filter(self):
         self._populate_table()
 
-    # ── Item changed ───────────────────────────────────────────────────────────
+    # ── Item changed / clicked ─────────────────────────────────────────────────
 
     def _on_item_changed(self, item: QTableWidgetItem):
         if item.column() != _COL_CLEANED:
@@ -274,6 +302,21 @@ class FolderSanitizerDialog(QDialog):
         row_idx = orig_item.data(Qt.ItemDataRole.UserRole)
         if row_idx is not None:
             self._rows[row_idx]['cleaned'] = item.text()
+        self._update_status()
+
+    def _on_item_clicked(self, item: QTableWidgetItem):
+        """Propagate checkbox state to all selected rows when col 0 is clicked."""
+        if item.column() != _COL_CHECK:
+            return
+        state = item.checkState()
+        selected_rows = {idx.row() for idx in self._table.selectionModel().selectedRows()}
+        selected_rows.add(item.row())
+        self._table.blockSignals(True)
+        for r in selected_rows:
+            chk = self._table.item(r, _COL_CHECK)
+            if chk:
+                chk.setCheckState(state)
+        self._table.blockSignals(False)
         self._update_status()
 
     # ── Select helpers ─────────────────────────────────────────────────────────
