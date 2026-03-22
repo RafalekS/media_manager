@@ -6,7 +6,6 @@ Wizard pages for media_manager:
 Step-by-step navigation matching the game_processor wizard pattern.
 """
 
-import json
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
@@ -275,13 +274,8 @@ class _BaseWizard(QDialog):
     # ── Shared failures helpers ──────────────────────────────────────────────
     def _count_failures(self) -> int:
         try:
-            meta_file = self._lib_config.metadata_file
-            if not meta_file or not Path(meta_file).exists():
-                return 0
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                meta = json.load(f)
-            items = meta.get('processed_items', meta.get('processed_games', {}))
-            return sum(1 for v in items.values() if not (v.get('igdb_found') or v.get('found')))
+            from modules.core.db import LibraryDB
+            return LibraryDB(Path(self._lib_config.metadata_file)).count_failed()
         except Exception:
             return 0
 
@@ -557,22 +551,21 @@ class RebuildWizard(_BaseWizard):
         self._btn_next.setEnabled(False)
 
     def _do_wipe(self):
-        meta_file = Path(self._lib_config.metadata_file)
-        scan_file = Path(self._lib_config.scan_list_file)
-
-        deleted = []
-        for f in (meta_file, scan_file):
-            if f.exists():
-                f.unlink()
-                deleted.append(f.name)
-                print(f'[Wipe] Deleted: {f}')
+        db_file = Path(self._lib_config.db_file)
+        try:
+            if db_file.exists():
+                from modules.core.db import LibraryDB
+                LibraryDB(db_file).wipe()
+                print(f'[Wipe] Cleared all data in {db_file.name}')
+                msg = f'Database wiped: {db_file.name}'
             else:
-                print(f'[Wipe] Not found (skipped): {f}')
+                print('[Wipe] No database found (already absent).')
+                msg = 'Nothing to wipe — database not found.'
+        except Exception as e:
+            msg = f'Wipe failed: {e}'
 
         self._wipe_btn.setVisible(False)
         self._indicator.set_state(0, _DONE)
-        msg = (f'Deleted: {", ".join(deleted)}'
-               if deleted else 'Nothing to delete — files already absent.')
         self._set_status(msg, 'status_ok')
         self._btn_next.setEnabled(True)
 

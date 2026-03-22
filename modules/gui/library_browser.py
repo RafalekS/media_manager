@@ -5,7 +5,6 @@ Data loading runs in a background thread to keep the GUI responsive.
 Cover images are loaded asynchronously and cached in memory.
 """
 
-import json
 import os
 from pathlib import Path
 
@@ -230,23 +229,19 @@ class _ItemEditDialog(QDialog):
                     return
 
         # ── Update metadata ────────────────────────────────────────────
-        meta_file = Path(self._lib_config.metadata_file)
         try:
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.metadata_file))
         except Exception as e:
             if renamed:
                 try:
-                    os.rename(new_path, old_path)   # undo rename
+                    os.rename(new_path, old_path)
                 except OSError:
                     pass
-            QMessageBox.critical(self, 'Error', f'Could not read metadata:\n{e}')
+            QMessageBox.critical(self, 'Error', f'Could not open metadata DB:\n{e}')
             return
 
-        items_key = 'processed_items' if 'processed_items' in data else 'processed_games'
-        items = data.get(items_key, {})
-
-        if self._meta_key not in items:
+        if not db.item_exists(self._meta_key):
             if renamed:
                 try:
                     os.rename(new_path, old_path)
@@ -256,23 +251,21 @@ class _ItemEditDialog(QDialog):
                                 f'Entry {self._meta_key!r} no longer exists in metadata.')
             return
 
-        items[self._meta_key].update(updates)
-        if 'display_name' in updates:
-            items[self._meta_key]['name'] = updates['display_name']
-
-        # Re-key the entry if the folder name (= dict key) changed
-        if new_path != old_path:
-            new_key = Path(new_path).name
-            if new_key != self._meta_key:
-                entry = items.pop(self._meta_key)
-                entry['original_name'] = new_key
-                entry['full_path']     = new_path
-                items[new_key]         = entry
-
-        data[items_key] = items
         try:
-            with open(meta_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            if new_path != old_path:
+                new_key = Path(new_path).name
+                field_updates = dict(updates)
+                field_updates['original_name'] = new_key
+                field_updates['full_path']      = new_path
+                if 'display_name' in field_updates:
+                    field_updates['name'] = field_updates['display_name']
+                db.rename_item(self._meta_key, new_key, field_updates)
+            else:
+                item = db.get_item(self._meta_key) or {}
+                item.update(updates)
+                if 'display_name' in updates:
+                    item['name'] = updates['display_name']
+                db.set_item(self._meta_key, item)
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Could not save metadata:\n{e}')
             return
@@ -296,20 +289,14 @@ class _LoadWorker(QThread):
         self._plugin     = plugin
 
     def run(self):
-        meta_file = Path(self._lib_config.metadata_file)
-        if not meta_file.exists():
-            self.done.emit([])
-            return
-
         try:
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            from modules.core.db import LibraryDB
+            items = LibraryDB(Path(self._lib_config.metadata_file)).get_all_items()
         except Exception as e:
             print(f'[ERROR] Failed to load metadata: {e}')
             self.done.emit([])
             return
 
-        items = data.get('processed_items', data.get('processed_games', {}))
         flat = []
         for key, entry in items.items():
             e = dict(entry)
@@ -689,19 +676,15 @@ class LibraryBrowser(QWidget):
 
     # ──────────────────────────────────────────────────────────────────
     def _save_changes(self):
-        meta_file = Path(self._lib_config.metadata_file)
         try:
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.metadata_file))
         except Exception as e:
-            QMessageBox.critical(self, 'Error', f'Could not read metadata file:\n{e}')
+            QMessageBox.critical(self, 'Error', f'Could not open metadata DB:\n{e}')
             return
 
-        items_key = 'processed_items' if 'processed_items' in data else 'processed_games'
-        items = data.get(items_key, {})
-
         for key in self._deleted_keys:
-            items.pop(key, None)
+            db.delete_item(key)
 
         col_keys = ['name'] + [col[0] for col in self._plugin.columns]
         editable_keys = {
@@ -709,34 +692,29 @@ class LibraryBrowser(QWidget):
             if col[0] not in self._READONLY_KEYS
         }
 
+        all_items = db.get_all_items()
+
         for row in range(self._model.rowCount()):
             key_item = self._model.item(row, 0)
             if not key_item:
                 continue
             meta_key = key_item.data(_KEY_ROLE)
-            if not meta_key or meta_key not in items:
+            if not meta_key or meta_key not in all_items:
                 continue
+            item = dict(all_items[meta_key])
             for col_idx, col_key in enumerate(col_keys):
                 if col_key not in editable_keys:
                     continue
                 cell = self._model.item(row, col_idx)
                 if cell:
-                    # Cover column stores URL in _URL_ROLE, not display text
                     if col_idx == self._cover_col_logical:
                         val = cell.data(_URL_ROLE) or ''
                     else:
                         val = cell.text()
-                    items[meta_key][col_key] = val
+                    item[col_key] = val
                     if col_key == 'display_name':
-                        items[meta_key]['name'] = val
-
-        data[items_key] = items
-        try:
-            with open(meta_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            QMessageBox.critical(self, 'Error', f'Could not save metadata file:\n{e}')
-            return
+                        item['name'] = val
+            db.set_item(meta_key, item)
 
         self._deleted_keys.clear()
         self._btn_save.setEnabled(False)

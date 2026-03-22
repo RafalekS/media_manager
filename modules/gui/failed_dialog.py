@@ -236,19 +236,12 @@ class FailedItemsDialog(QDialog):
 
     # ── Load data ─────────────────────────────────────────────────────
     def _load_data(self):
-        meta_file = self._lib_config.metadata_file
-        if not meta_file or not Path(meta_file).exists():
-            self._info_label.setText('No metadata file found — run Metadata step first.')
+        try:
+            from modules.core.db import LibraryDB
+            failed = LibraryDB(Path(self._lib_config.metadata_file)).get_failed_items()
+        except Exception as e:
+            self._info_label.setText(f'Could not load metadata: {e}')
             return
-
-        with open(meta_file, 'r', encoding='utf-8') as f:
-            raw = json.load(f)
-
-        items = raw.get('processed_items', raw.get('processed_games', {}))
-        failed = {
-            k: v for k, v in items.items()
-            if not (v.get('igdb_found') or v.get('found'))
-        }
 
         self._populate_table(failed)
         from PyQt6.QtCore import QTimer
@@ -431,25 +424,22 @@ class FailedItemsDialog(QDialog):
         if not ok or not genre:
             return
 
-        meta_file = Path(self._lib_config.metadata_file)
         try:
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                raw = json.load(f)
-            key_name = 'processed_items' if 'processed_items' in raw else 'processed_games'
-            items = raw.get(key_name, {})
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.metadata_file))
 
             for row, info in selected:
                 k = info['key']
-                entry = items.get(k, {})
+                entry = db.get_item(k) or {}
                 entry.update({
-                    'found':        True,
-                    'igdb_found':   True,
-                    'manual':       True,
-                    'genre':        genre,
+                    'found':         True,
+                    'igdb_found':    True,
+                    'manual':        True,
+                    'genre':         genre,
                     'original_name': info.get('original_name', k),
-                    'display_name': info.get('original_name', k),
+                    'display_name':  info.get('original_name', k),
                 })
-                items[k] = entry
+                db.set_item(k, entry)
 
                 si = self._table.item(row, self._COL_STATUS)
                 if si:
@@ -458,10 +448,6 @@ class FailedItemsDialog(QDialog):
                 chk = self._table.item(row, self._COL_SEL)
                 if chk:
                     chk.setCheckState(Qt.CheckState.Unchecked)
-
-            raw[key_name] = items
-            with open(meta_file, 'w', encoding='utf-8') as f:
-                json.dump(raw, f, indent=2, ensure_ascii=False)
 
             QMessageBox.information(
                 self, 'Done',
@@ -583,16 +569,11 @@ class FailedItemsDialog(QDialog):
     def _save_found(self):
         if not self._pending_results:
             return
-        meta_file = Path(self._lib_config.metadata_file)
         try:
-            with open(meta_file, 'r', encoding='utf-8') as f:
-                raw = json.load(f)
-            key_name = 'processed_items' if 'processed_items' in raw else 'processed_games'
-            items = raw.get(key_name, {})
-            items.update(self._pending_results)
-            raw[key_name] = items
-            with open(meta_file, 'w', encoding='utf-8') as f:
-                json.dump(raw, f, indent=2, ensure_ascii=False)
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.metadata_file))
+            for key, item in self._pending_results.items():
+                db.set_item(key, item)
             saved_keys = set(self._pending_results.keys())
             count = len(saved_keys)
             self._pending_results = {}

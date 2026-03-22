@@ -805,34 +805,18 @@ class MainWindow(QMainWindow):
             )
 
         scanned = found = failed = organized = 0
-
-        scan_file = self._lib_config.scan_list_file
-        if scan_file and Path(scan_file).exists():
-            try:
-                with open(scan_file, 'r', encoding='utf-8') as f:
-                    scanned = len(json.load(f))
-            except Exception:
-                pass
-
         genre_counts = {}
-        meta_file = self._lib_config.metadata_file
-        if meta_file and Path(meta_file).exists():
-            try:
-                with open(meta_file, 'r', encoding='utf-8') as f:
-                    meta = json.load(f)
-                items = meta.get('processed_items', meta.get('processed_games', {}))
-                found     = sum(1 for v in items.values() if v.get('igdb_found') or v.get('found'))
-                failed    = len(items) - found
-                organized = sum(
-                    1 for v in items.values()
-                    if (v.get('igdb_found') or v.get('found')) and v.get('genre')
-                )
-                for v in items.values():
-                    g = v.get('genre', '').strip()
-                    if g:
-                        genre_counts[g] = genre_counts.get(g, 0) + 1
-            except Exception:
-                pass
+
+        try:
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.db_file))
+            scanned   = db.count_scan_list()
+            found      = db.count_found()
+            failed     = db.count_failed()
+            organized  = db.count_organized()
+            genre_counts = db.genre_counts()
+        except Exception:
+            pass
 
         self._card_scanned.set_value(scanned)
         self._card_found.set_value(found)

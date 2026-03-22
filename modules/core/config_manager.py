@@ -138,12 +138,16 @@ class LibraryConfig:
         return full
 
     @property
+    def db_file(self) -> Path:
+        return self.data_folder / 'library.db'
+
+    @property
     def scan_list_file(self) -> Path:
-        return self.data_folder / 'scan_list.json'
+        return self.db_file
 
     @property
     def metadata_file(self) -> Path:
-        return self.data_folder / 'metadata_progress.json'
+        return self.db_file
 
     @property
     def html_file(self) -> Path:

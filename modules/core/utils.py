@@ -51,10 +51,9 @@ def scan_source_folder(source_folder: str, clean_fn) -> list[dict]:
 
 def save_scan_list(items: list, path: Path) -> bool:
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(items, f, indent=2, ensure_ascii=False)
-        print(f'[OK] Saved {len(items)} items to {path.name}')
+        from modules.core.db import LibraryDB
+        LibraryDB(path).save_scan_list(items)
+        print(f'[OK] Saved {len(items)} items to {Path(path).name}')
         return True
     except Exception as e:
         print(f'[ERROR] Failed to save scan list: {e}')
@@ -62,11 +61,9 @@ def save_scan_list(items: list, path: Path) -> bool:
 
 
 def load_scan_list(path: Path) -> list:
-    if not path.exists():
-        return []
     try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        from modules.core.db import LibraryDB
+        return LibraryDB(path).load_scan_list()
     except Exception as e:
         print(f'[ERROR] Failed to load scan list: {e}')
         return []
@@ -114,30 +111,22 @@ def scan_organized_items(destination_base: str, skip_folders: list | None = None
     return result
 
 
-# ── Metadata progress file ────────────────────────────────────────────────────
+# ── Metadata progress ─────────────────────────────────────────────────────────
 
 def load_metadata_progress(path: Path) -> dict:
-    """Load metadata_progress.json, returning empty structure on missing/error."""
-    if not path.exists():
-        return {'schema_version': 1, 'processed_items': {}}
+    """Load metadata from SQLite DB, returning empty structure on missing/error."""
     try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        # Support legacy igdb_progress.json key name
-        if 'processed_games' in data and 'processed_items' not in data:
-            data['processed_items'] = data['processed_games']
-        return data
+        from modules.core.db import LibraryDB
+        return LibraryDB(path).load_metadata()
     except Exception as e:
         print(f'[ERROR] Failed to load metadata progress: {e}')
-        return {'schema_version': 1, 'processed_items': {}}
+        return {'schema_version': 2, 'processed_items': {}}
 
 
 def save_metadata_progress(data: dict, path: Path) -> bool:
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data['last_updated'] = datetime.now().isoformat()
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        from modules.core.db import LibraryDB
+        LibraryDB(path).save_metadata(data)
         return True
     except Exception as e:
         print(f'[ERROR] Failed to save metadata progress: {e}')
