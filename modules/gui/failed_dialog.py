@@ -455,6 +455,9 @@ class FailedItemsDialog(QDialog):
                 if si:
                     si.setText(f'Manual: {genre}')
                     si.setForeground(Qt.GlobalColor.darkGreen)
+                chk = self._table.item(row, self._COL_SEL)
+                if chk:
+                    chk.setCheckState(Qt.CheckState.Unchecked)
 
             raw[key_name] = items
             with open(meta_file, 'w', encoding='utf-8') as f:
