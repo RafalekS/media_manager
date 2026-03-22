@@ -73,4 +73,5 @@ class GamesPlugin(MediaPlugin):
             ('provider_source', 'Source',         80),
             ('description',     'Description',   350),
             ('full_path',       'Location',      300),
+            ('cover_url',       'Cover',         120),
         ]

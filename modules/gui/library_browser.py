@@ -2,23 +2,98 @@
 Library browser page — generic table view driven by plugin.columns.
 Shows all organized items enriched with metadata.
 Data loading runs in a background thread to keep the GUI responsive.
+Cover images are loaded asynchronously and cached in memory.
 """
 
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
+from PyQt6.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QTableView, QHeaderView, QLineEdit, QComboBox, QFrame,
     QCheckBox, QMessageBox, QDialog, QPlainTextEdit, QScrollArea,
+    QMenu, QStyledItemDelegate, QApplication,
 )
 
-_KEY_ROLE = Qt.ItemDataRole.UserRole  # stores metadata dict key on col-0 cell
+_KEY_ROLE   = Qt.ItemDataRole.UserRole       # stores metadata dict key on col-0 cell
+_URL_ROLE   = Qt.ItemDataRole.UserRole + 1   # stores raw URL on cover cells
 
 # Keys that are always read-only in the edit dialog
 _DIALOG_READONLY = frozenset({'full_path', 'provider_source'})
+
+_COVER_ROW_HEIGHT  = 90   # px — used when cover column is visible
+_DEFAULT_ROW_HEIGHT = 30  # px
+
+
+# ── Cover image loader ─────────────────────────────────────────────────────────
+
+class _CoverLoader(QThread):
+    """Fetches cover images in background; emits batches of (url, QImage).
+    QImage is thread-safe; QPixmap conversion happens in the main thread."""
+
+    batch_ready = pyqtSignal(list)   # list of (url: str, img: QImage)
+
+    def __init__(self, urls: list):
+        super().__init__()
+        self._urls = urls
+        self._stop = False
+
+    def request_stop(self):
+        self._stop = True
+
+    def run(self):
+        import requests
+        batch = []
+        for url in self._urls:
+            if self._stop or not url:
+                continue
+            try:
+                r = requests.get(url, timeout=8)
+                if r.ok:
+                    img = QImage()
+                    img.loadFromData(r.content)
+                    if not img.isNull():
+                        batch.append((url, img))
+                        if len(batch) >= 8:
+                            self.batch_ready.emit(batch)
+                            batch = []
+            except Exception:
+                pass
+        if batch:
+            self.batch_ready.emit(batch)
+
+
+# ── Cover delegate ─────────────────────────────────────────────────────────────
+
+class _CoverDelegate(QStyledItemDelegate):
+    """Renders a cover image from the shared cache; falls back to URL text."""
+
+    def __init__(self, cache: dict, parent=None):
+        super().__init__(parent)
+        self._cache = cache   # {url: QPixmap}
+
+    def paint(self, painter, option, index):
+        url = index.data(_URL_ROLE)
+        if url:
+            px = self._cache.get(url)
+            if px and not px.isNull():
+                scaled = px.scaled(
+                    option.rect.width() - 4,
+                    option.rect.height() - 4,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                x = option.rect.x() + (option.rect.width()  - scaled.width())  // 2
+                y = option.rect.y() + (option.rect.height() - scaled.height()) // 2
+                painter.drawPixmap(x, y, scaled)
+                return
+        # No image yet — show plain text URL
+        super().paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        return QSize(120, _COVER_ROW_HEIGHT)
 
 
 # ── Item edit dialog ───────────────────────────────────────────────────────────
@@ -34,7 +109,7 @@ class _ItemEditDialog(QDialog):
         self._plugin     = plugin
         self._lib_config = lib_config
         self._ui_state   = ui_state
-        self._fields     = {}   # field_key -> QWidget
+        self._fields     = {}
 
         title = item_data.get('original_name') or item_data.get('name', meta_key)
         self.setWindowTitle(f'Edit — {title}')
@@ -69,7 +144,6 @@ class _ItemEditDialog(QDialog):
 
         shown = set()
 
-        # Plugin columns first
         for key, label, _ in self._plugin.columns:
             if key in shown:
                 continue
@@ -87,7 +161,6 @@ class _ItemEditDialog(QDialog):
             form.addRow(label + ':', w)
             self._fields[key] = w
 
-        # Extra fields (only shown if non-empty, except provider_source)
         for key, label in [
             ('cover_url',       'Cover URL'),
             ('website_url',     'Website URL'),
@@ -148,7 +221,6 @@ class _ItemEditDialog(QDialog):
             return
 
         items[self._meta_key].update(updates)
-        # Keep display_name / name in sync
         if 'display_name' in updates:
             items[self._meta_key]['name'] = updates['display_name']
 
@@ -171,7 +243,7 @@ class _ItemEditDialog(QDialog):
 # ── Background loader ─────────────────────────────────────────────────────────
 
 class _LoadWorker(QThread):
-    done = pyqtSignal(list)   # emits flat list of item dicts
+    done = pyqtSignal(list)
 
     def __init__(self, lib_config, plugin):
         super().__init__()
@@ -206,13 +278,7 @@ class _LoadWorker(QThread):
 # ── Browser widget ────────────────────────────────────────────────────────────
 
 class LibraryBrowser(QWidget):
-    """
-    Generic table browser — columns come from plugin.columns.
-    First column is always 'Name' (folder name), read-only.
-    Plugin columns are editable via double-click (except 'full_path').
-    """
 
-    # Column keys that must never be inline-edited in the table
     _READONLY_KEYS = frozenset({'full_path', 'provider_source'})
 
     def __init__(self, lib_config, plugin, ui_state, parent=None):
@@ -224,10 +290,18 @@ class LibraryBrowser(QWidget):
         self._data         = []
         self._state_loaded = False
         self._worker       = None
-        self._loading      = False   # suppress itemChanged during populate
-        self._deleted_keys = set()   # keys removed from table, pending save
+        self._cover_loader = None
+        self._loading      = False
+        self._deleted_keys = set()
+        self._img_cache    = {}   # {url: QPixmap}
 
-        # Find genre column index in the table (col 0 = name, then plugin cols)
+        # Logical column index of the cover_url column (None if not present)
+        self._cover_col_logical = next(
+            (i + 1 for i, (key, _, _) in enumerate(plugin.columns) if key == 'cover_url'),
+            None,
+        )
+
+        # Genre column index for filter
         self._genre_col_idx = next(
             (i for i, (key, _, _) in enumerate(plugin.columns) if key == 'genre'),
             None,
@@ -281,9 +355,11 @@ class LibraryBrowser(QWidget):
         self._genre_combo.currentIndexChanged.connect(self._apply_filter)
         flt.addWidget(self._genre_combo, 1)
 
+        # Wrap text — restore saved state
+        wrap_saved = self._ui_state.get(f'{self._state_key}_wrap', False)
         self._chk_wrap = QCheckBox('Wrap text')
-        self._chk_wrap.setChecked(False)
-        self._chk_wrap.toggled.connect(self._toggle_wrap)
+        self._chk_wrap.setChecked(wrap_saved)
+        self._chk_wrap.toggled.connect(self._on_wrap_toggled)
         flt.addWidget(self._chk_wrap)
 
         layout.addLayout(flt)
@@ -303,6 +379,7 @@ class LibraryBrowser(QWidget):
         self._table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self._table.setSortingEnabled(False)
         self._table.doubleClicked.connect(self._open_edit_dialog)
+        self._table.setWordWrap(wrap_saved)
 
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -310,9 +387,16 @@ class LibraryBrowser(QWidget):
         header.sectionResized.connect(self._on_header_changed)
         header.sectionMoved.connect(self._on_header_changed)
         header.sortIndicatorChanged.connect(self._on_header_changed)
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._show_column_menu)
 
         self._table.verticalHeader().setVisible(False)
         layout.addWidget(self._table)
+
+        # Cover delegate (applied once; cover col may not exist for all media types)
+        if self._cover_col_logical is not None:
+            self._cover_delegate = _CoverDelegate(self._img_cache, self._table)
+            self._table.setItemDelegateForColumn(self._cover_col_logical, self._cover_delegate)
 
         # Action row
         act = QHBoxLayout()
@@ -349,7 +433,6 @@ class LibraryBrowser(QWidget):
 
     # ──────────────────────────────────────────────────────────────────
     def load_data(self):
-        """Start background load — GUI stays responsive."""
         if self._worker and self._worker.isRunning():
             return
 
@@ -368,6 +451,7 @@ class LibraryBrowser(QWidget):
         self._btn_refresh.setEnabled(True)
         self._populate_table()
         self._populate_genre_filter()
+        self._start_cover_load()
 
     def _populate_table(self):
         self._loading = True
@@ -376,11 +460,12 @@ class LibraryBrowser(QWidget):
 
         col_keys = ['name'] + [col[0] for col in self._plugin.columns]
 
-        # Determine which table column indices are read-only
-        readonly_cols = {0}  # folder name — never editable
+        readonly_cols = {0}
         for i, (key, _, _) in enumerate(self._plugin.columns, start=1):
             if key in self._READONLY_KEYS:
                 readonly_cols.add(i)
+
+        cover_col = self._cover_col_logical
 
         for item in self._data:
             meta_key = item.get('_key', '')
@@ -392,21 +477,44 @@ class LibraryBrowser(QWidget):
                     cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 if col_idx == 0:
                     cell.setData(meta_key, _KEY_ROLE)
+                if col_idx == cover_col:
+                    cell.setData(str(val), _URL_ROLE)
+                    cell.setText('')   # hide raw URL — delegate draws image
                 row.append(cell)
             self._model.appendRow(row)
 
         self._table.setSortingEnabled(True)
         self._lbl_status.setText(f'{len(self._data)} items')
 
-        if self._chk_wrap.isChecked():
-            self._table.resizeRowsToContents()
-
+        # Restore state once; also applies wrap + hidden columns
         if not self._state_loaded:
             self._state_loaded = True
-            QTimer.singleShot(0, lambda: self._ui_state.restore_table(self._table, self._state_key))
+            QTimer.singleShot(0, self._restore_state)
+        else:
+            self._apply_row_heights()
 
         self._loading = False
         self._apply_filter()
+
+    def _restore_state(self):
+        self._ui_state.restore_table(self._table, self._state_key)
+        self._apply_row_heights()
+
+    def _apply_row_heights(self):
+        """Set row height: cover row height if cover column visible, else default/wrap."""
+        cover_visible = (
+            self._cover_col_logical is not None and
+            not self._table.horizontalHeader().isSectionHidden(self._cover_col_logical)
+        )
+        vh = self._table.verticalHeader()
+        if cover_visible:
+            vh.setDefaultSectionSize(_COVER_ROW_HEIGHT)
+            vh.setMinimumSectionSize(_COVER_ROW_HEIGHT)
+        elif self._chk_wrap.isChecked():
+            self._table.resizeRowsToContents()
+        else:
+            vh.setDefaultSectionSize(_DEFAULT_ROW_HEIGHT)
+            vh.setMinimumSectionSize(_DEFAULT_ROW_HEIGHT)
 
     def _populate_genre_filter(self):
         genres = sorted({item.get('genre', '') for item in self._data if item.get('genre')})
@@ -419,6 +527,50 @@ class LibraryBrowser(QWidget):
         idx = self._genre_combo.findText(current)
         self._genre_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._genre_combo.blockSignals(False)
+
+    # ── Cover image loading ────────────────────────────────────────────
+    def _start_cover_load(self):
+        if self._cover_col_logical is None:
+            return
+        if self._cover_loader and self._cover_loader.isRunning():
+            self._cover_loader.request_stop()
+            self._cover_loader.wait(2000)
+
+        urls = [
+            item.get('cover_url', '')
+            for item in self._data
+            if item.get('cover_url') and item['cover_url'] not in self._img_cache
+        ]
+        if not urls:
+            return
+
+        self._cover_loader = _CoverLoader(urls)
+        self._cover_loader.batch_ready.connect(self._on_covers_loaded)
+        self._cover_loader.start()
+
+    def _on_covers_loaded(self, batch: list):
+        for url, img in batch:
+            self._img_cache[url] = QPixmap.fromImage(img)
+        self._table.viewport().update()
+
+    # ── Column visibility ──────────────────────────────────────────────
+    def _show_column_menu(self, pos):
+        header = self._table.horizontalHeader()
+        menu = QMenu(self)
+        for logical in range(self._model.columnCount()):
+            label = self._model.headerData(logical, Qt.Orientation.Horizontal) or str(logical)
+            act = menu.addAction(str(label))
+            act.setCheckable(True)
+            act.setChecked(not header.isSectionHidden(logical))
+            act.triggered.connect(
+                lambda checked, col=logical: self._set_column_visible(col, checked)
+            )
+        menu.exec(header.mapToGlobal(pos))
+
+    def _set_column_visible(self, logical: int, visible: bool):
+        self._table.horizontalHeader().setSectionHidden(logical, not visible)
+        self._apply_row_heights()
+        self._on_header_changed()
 
     # ──────────────────────────────────────────────────────────────────
     def _on_item_changed(self, _item):
@@ -443,7 +595,6 @@ class LibraryBrowser(QWidget):
         if not meta_key:
             return
 
-        # Find the full data dict for this key
         item_data = next((d for d in self._data if d.get('_key') == meta_key), None)
         if item_data is None:
             return
@@ -453,16 +604,13 @@ class LibraryBrowser(QWidget):
             ui_state=self._ui_state, parent=self.window(),
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.load_data()  # reload to reflect saved changes
+            self.load_data()
 
-    def _toggle_wrap(self, checked: bool):
+    def _on_wrap_toggled(self, checked: bool):
         self._table.setWordWrap(checked)
-        if checked:
-            self._table.resizeRowsToContents()
-        else:
-            self._table.verticalHeader().setDefaultSectionSize(30)
-            for row in range(self._model.rowCount()):
-                self._table.setRowHeight(row, 30)
+        self._ui_state.set(f'{self._state_key}_wrap', checked)
+        self._ui_state.save()
+        self._apply_row_heights()
 
     # ──────────────────────────────────────────────────────────────────
     def _delete_selected(self):
@@ -490,8 +638,7 @@ class LibraryBrowser(QWidget):
                     self._deleted_keys.add(key)
             self._model.removeRow(row)
 
-        total = self._model.rowCount()
-        self._lbl_status.setText(f'{total} items')
+        self._lbl_status.setText(f'{self._model.rowCount()} items')
         self._btn_save.setEnabled(True)
         self._btn_delete.setEnabled(False)
 
@@ -508,11 +655,9 @@ class LibraryBrowser(QWidget):
         items_key = 'processed_items' if 'processed_items' in data else 'processed_games'
         items = data.get(items_key, {})
 
-        # Remove deleted entries
         for key in self._deleted_keys:
             items.pop(key, None)
 
-        # Apply in-table edits
         col_keys = ['name'] + [col[0] for col in self._plugin.columns]
         editable_keys = {
             col[0] for col in self._plugin.columns
@@ -531,10 +676,14 @@ class LibraryBrowser(QWidget):
                     continue
                 cell = self._model.item(row, col_idx)
                 if cell:
-                    items[meta_key][col_key] = cell.text()
-                    # display_name is stored as 'name' in the raw entry
+                    # Cover column stores URL in _URL_ROLE, not display text
+                    if col_idx == self._cover_col_logical:
+                        val = cell.data(_URL_ROLE) or ''
+                    else:
+                        val = cell.text()
+                    items[meta_key][col_key] = val
                     if col_key == 'display_name':
-                        items[meta_key]['name'] = cell.text()
+                        items[meta_key]['name'] = val
 
         data[items_key] = items
         try:
@@ -566,9 +715,11 @@ class LibraryBrowser(QWidget):
                 search_match = False
                 for col in range(self._model.columnCount()):
                     cell = self._model.item(row, col)
-                    if cell and search in cell.text().lower():
-                        search_match = True
-                        break
+                    if cell:
+                        text = cell.data(_URL_ROLE) if col == self._cover_col_logical else cell.text()
+                        if text and search in str(text).lower():
+                            search_match = True
+                            break
             else:
                 search_match = True
 
@@ -583,17 +734,18 @@ class LibraryBrowser(QWidget):
         self._ui_state.save_table(self._table, self._state_key)
 
     def save_state(self):
-        """Explicitly save column state — call from closeEvent."""
         self._debounce.stop()
         if self._state_loaded:
             self._save_table_state()
 
     def stop_worker(self):
-        """Abort any in-progress background load."""
         if self._worker and self._worker.isRunning():
             self._worker.done.disconnect()
             self._worker.quit()
             self._worker.wait(2000)
+        if self._cover_loader and self._cover_loader.isRunning():
+            self._cover_loader.request_stop()
+            self._cover_loader.wait(2000)
 
     def hideEvent(self, event):
         self._debounce.stop()

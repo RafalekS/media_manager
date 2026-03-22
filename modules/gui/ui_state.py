@@ -64,17 +64,13 @@ class UIState:
 
     def save_table(self, table, key):
         header = table.horizontalHeader()
-        # header.count() works for both QTableWidget and QTableView
         col_count = header.count()
         self._state[key] = {
-            'column_widths': [
-                header.sectionSize(i) for i in range(col_count)
-            ],
-            'column_order': [
-                header.logicalIndex(i) for i in range(col_count)
-            ],
-            'sort_column': header.sortIndicatorSection(),
-            'sort_order':  header.sortIndicatorOrder().value,
+            'column_widths':  [header.sectionSize(i) for i in range(col_count)],
+            'column_order':   [header.logicalIndex(i) for i in range(col_count)],
+            'hidden_columns': [i for i in range(col_count) if header.isSectionHidden(i)],
+            'sort_column':    header.sortIndicatorSection(),
+            'sort_order':     header.sortIndicatorOrder().value,
         }
         self.save()
 
@@ -96,6 +92,10 @@ class UIState:
                 current_visual = header.visualIndex(logical_idx)
                 if current_visual != visual_pos:
                     header.moveSection(current_visual, visual_pos)
+
+        for col in s.get('hidden_columns', []):
+            if col < col_count:
+                header.setSectionHidden(col, True)
 
         sort_col = s.get('sort_column', -1)
         sort_order_val = s.get('sort_order', 0)
