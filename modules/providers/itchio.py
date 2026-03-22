@@ -3,13 +3,12 @@ itch.io provider (games supplement).
 Docs: https://itch.io/docs/api/serverside
 Auth: Bearer token in Authorization header.
 Falls back to authenticated web search for adult games excluded from the public API.
-Web search uses session cookie (itchio_token) for adult content visibility.
+Web search uses the 'itchio' session cookie for adult content visibility.
 """
 
 import difflib
 import re
 import requests
-from urllib.parse import unquote
 from modules.core.base_metadata import MetadataProvider
 
 
@@ -20,10 +19,9 @@ class ItchIOProvider(MetadataProvider):
 
     def __init__(self, api_config: dict):
         super().__init__(api_config)
-        self._api_key        = api_config.get('itch_api_key', '')
-        # URL-decode cookie — config stores it URL-encoded as copied from browser devtools
-        raw_cookie           = api_config.get('itch_session_cookie', '')
-        self._session_cookie = unquote(raw_cookie) if raw_cookie else ''
+        self._api_key       = api_config.get('itch_api_key', '')
+        # 'itchio' is the main session cookie (copy value from browser devtools)
+        self._itchio_cookie = api_config.get('itch_itchio_cookie', '')
 
     def authenticate(self) -> bool:
         return bool(self._api_key)
@@ -50,41 +48,47 @@ class ItchIOProvider(MetadataProvider):
             print(f'[itch.io] API search error: {e}')
             return []
 
+    def _make_headers(self) -> dict:
+        """Build request headers with session auth if available."""
+        headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
+        if self._itchio_cookie:
+            # Send as raw Cookie header — the value contains = signs that
+            # requests' cookie dict would re-encode, breaking session auth
+            headers['Cookie'] = f'itchio={self._itchio_cookie}'
+        else:
+            headers['Authorization'] = f'Bearer {self._api_key}'
+        return headers
+
     def _web_search(self, query: str) -> list:
         """Authenticated web search for adult games excluded from the public API.
         Extracts all unique itch.io game URLs independently (no ID pairing),
-        matches by URL slug, then fetches metadata via Open Graph tags.
-        Searches page 1 and page 2 to improve coverage."""
+        matches by URL slug, then fetches metadata via Open Graph tags."""
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
-            if self._session_cookie:
-                # Send as raw Cookie header — requests' cookie dict re-encodes = signs
-                # in JWT tokens which breaks itch.io session auth
-                headers['Cookie'] = f'itchio_token={self._session_cookie}'
-            else:
-                headers['Authorization'] = f'Bearer {self._api_key}'
-            base_kwargs = {'headers': headers, 'timeout': 15}
-
-            q_slug = query.lower().strip().replace(' ', '-')
+            headers  = self._make_headers()
+            q_slug   = query.lower().strip().replace(' ', '-')
             seen, urls = set(), []
 
             for page in (1, 2):
-                params = {'q': query, 'page': page}
-                r = requests.get('https://itch.io/search', params=params, **base_kwargs)
+                r = requests.get(
+                    'https://itch.io/search',
+                    params={'q': query, 'page': page},
+                    headers=headers,
+                    timeout=15,
+                )
                 r.raise_for_status()
 
                 page_urls = []
                 for url in re.findall(r'href="(https://[^"]+\.itch\.io/[^"#?]+)"', r.text):
                     url = url.rstrip('/')
-                    parts = url.split('/')
-                    if len(parts) == 4 and url not in seen:
+                    # Only game pages: https://author.itch.io/game-slug (4 parts)
+                    if len(url.split('/')) == 4 and url not in seen:
                         seen.add(url)
                         page_urls.append(url)
                         urls.append(url)
 
                 print(f'[itch.io] page {page}: {len(page_urls)} new game URLs')
 
-                # Stop early if exact slug match found on this page
+                # Stop early if exact slug found
                 if any(u.split('/')[-1].lower() == q_slug for u in page_urls):
                     break
 
@@ -123,12 +127,7 @@ class ItchIOProvider(MetadataProvider):
     def _fetch_from_page(self, game_url: str) -> dict | None:
         """Fetch game metadata from its itch.io page via Open Graph tags."""
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
-            if self._session_cookie:
-                headers['Cookie'] = f'itchio_token={self._session_cookie}'
-            req_kwargs = {'headers': headers, 'timeout': 10}
-
-            r = requests.get(game_url, **req_kwargs)
+            r = requests.get(game_url, headers=self._make_headers(), timeout=10)
             r.raise_for_status()
             html = r.text
 
@@ -148,13 +147,11 @@ class ItchIOProvider(MetadataProvider):
             description = og('description')
             image       = og('image')
 
-            # Fallback title from <title> tag
             if not title:
                 m = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
                 title = m.group(1).split(' by ')[0].strip() if m else ''
 
             if not title:
-                # Last resort: derive from slug
                 slug  = game_url.split('/')[-1]
                 title = slug.replace('-', ' ').title()
 
