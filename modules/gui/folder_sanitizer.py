@@ -58,8 +58,9 @@ def clean_folder_name(name: str) -> str:
 # ── Column indices ─────────────────────────────────────────────────────────────
 _COL_CHECK   = 0
 _COL_GENRE   = 1
-_COL_ORIG    = 2
-_COL_CLEANED = 3
+_COL_PATH    = 2
+_COL_ORIG    = 3
+_COL_CLEANED = 4
 
 
 class FolderSanitizerDialog(QDialog):
@@ -113,8 +114,8 @@ class FolderSanitizerDialog(QDialog):
         lay.addLayout(filter_row)
 
         # Table
-        self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(['', 'Genre', 'Original Name', 'Cleaned Name'])
+        self._table = QTableWidget(0, 5)
+        self._table.setHorizontalHeaderLabels(['', 'Genre', 'Full Path', 'Original Name', 'Cleaned Name'])
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked |
@@ -123,10 +124,11 @@ class FolderSanitizerDialog(QDialog):
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         hdr.setSectionsMovable(True)
-        self._table.setColumnWidth(_COL_CHECK,   30)
-        self._table.setColumnWidth(_COL_GENRE,  120)
-        self._table.setColumnWidth(_COL_ORIG,   380)
-        self._table.setColumnWidth(_COL_CLEANED, 380)
+        self._table.setColumnWidth(_COL_CHECK,    30)
+        self._table.setColumnWidth(_COL_GENRE,   110)
+        self._table.setColumnWidth(_COL_PATH,    300)
+        self._table.setColumnWidth(_COL_ORIG,    280)
+        self._table.setColumnWidth(_COL_CLEANED, 280)
         hdr.setStretchLastSection(False)
 
         self._table.verticalHeader().setVisible(False)
@@ -230,6 +232,12 @@ class FolderSanitizerDialog(QDialog):
             genre_item = QTableWidgetItem(row_data['genre'])
             genre_item.setFlags(genre_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_GENRE, genre_item)
+
+            # Full path of parent directory (read-only)
+            parent_path = str(Path(row_data['folder_path']).parent)
+            path_item = QTableWidgetItem(parent_path)
+            path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._table.setItem(r, _COL_PATH, path_item)
 
             # Original (read-only)
             orig_item = QTableWidgetItem(row_data['orig'])
