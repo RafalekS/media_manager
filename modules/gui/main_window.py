@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QComboBox, QFrame, QScrollArea,
     QSizePolicy as QSP, QStatusBar, QApplication,
     QGroupBox, QFormLayout, QCheckBox, QRadioButton, QButtonGroup,
-    QProgressBar, QMessageBox,
+    QProgressBar, QMessageBox, QTableWidget, QTableWidgetItem,
+    QHeaderView, QAbstractItemView, QInputDialog,
 )
 
 from modules.gui.log_widget import LogWidget
@@ -381,7 +382,41 @@ class MainWindow(QMainWindow):
         html_row.addStretch()
         lay.addLayout(html_row)
 
-        lay.addStretch()
+        # ── Genres table ──────────────────────────────────────────────
+        self._genres_grp = QGroupBox('Genres')
+        genres_lay = QVBoxLayout(self._genres_grp)
+
+        self._genres_table = QTableWidget()
+        self._genres_table.setColumnCount(2)
+        self._genres_table.setHorizontalHeaderLabels(['Genre', 'Games'])
+        hdr = self._genres_table.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionsMovable(True)
+        self._genres_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._genres_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._genres_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._genres_table.setAlternatingRowColors(True)
+        self._genres_table.verticalHeader().setVisible(False)
+        self._genres_table.setMinimumHeight(180)
+        self._genres_table.doubleClicked.connect(self._genre_rename)
+        genres_lay.addWidget(self._genres_table)
+
+        genre_btns = QHBoxLayout()
+        self._btn_genre_add    = QPushButton('Add')
+        self._btn_genre_rename = QPushButton('Rename')
+        self._btn_genre_rename.setObjectName('btn_secondary')
+        self._btn_genre_del    = QPushButton('Delete')
+        self._btn_genre_del.setObjectName('btn_secondary')
+        self._btn_genre_add.clicked.connect(self._genre_add)
+        self._btn_genre_rename.clicked.connect(self._genre_rename)
+        self._btn_genre_del.clicked.connect(self._genre_delete)
+        for b in (self._btn_genre_add, self._btn_genre_rename, self._btn_genre_del):
+            b.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+            genre_btns.addWidget(b)
+        genre_btns.addStretch()
+        genres_lay.addLayout(genre_btns)
+
+        lay.addWidget(self._genres_grp)
         scroll.setWidget(inner)
         return scroll
 
@@ -774,6 +809,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        genre_counts = {}
         meta_file = self._lib_config.metadata_file
         if meta_file and Path(meta_file).exists():
             try:
@@ -786,6 +822,10 @@ class MainWindow(QMainWindow):
                     1 for v in items.values()
                     if (v.get('igdb_found') or v.get('found')) and v.get('genre')
                 )
+                for v in items.values():
+                    g = v.get('genre', '').strip()
+                    if g:
+                        genre_counts[g] = genre_counts.get(g, 0) + 1
             except Exception:
                 pass
 
@@ -793,6 +833,7 @@ class MainWindow(QMainWindow):
         self._card_found.set_value(found)
         self._card_failed.set_value(failed)
         self._card_organized.set_value(organized)
+        self._load_genres_dash(genre_counts)
 
         html_file = self._lib_config.html_file
         self._dash_btn_html.setVisible(bool(html_file and Path(html_file).exists()))
@@ -800,6 +841,103 @@ class MainWindow(QMainWindow):
         t = _THEMES.get(self._global_config.theme, _THEMES['Light'])
         for card in self._stat_cards:
             card.apply_theme(t['card_bg'], t['card_border'])
+
+    # ── Genres (dashboard) ────────────────────────────────────────────
+    def _load_genres_dash(self, genre_counts: dict):
+        import json
+        genre_file = self._lib_config.genre_file if self._lib_config else None
+        has_file = bool(genre_file)
+        self._genres_grp.setVisible(has_file)
+        if not has_file:
+            return
+
+        # Load genre list from file; fall back to empty if missing
+        genres = []
+        if Path(genre_file).exists():
+            try:
+                with open(genre_file, 'r', encoding='utf-8') as f:
+                    raw = json.load(f)
+                genres = sorted(raw.values() if isinstance(raw, dict) else raw)
+            except Exception:
+                pass
+
+        self._genres_table.setSortingEnabled(False)
+        self._genres_table.setRowCount(0)
+        self._genres_table.setRowCount(len(genres))
+        for row, name in enumerate(genres):
+            g_item = QTableWidgetItem(name)
+            c_item = QTableWidgetItem(str(genre_counts.get(name, 0)))
+            c_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._genres_table.setItem(row, 0, g_item)
+            self._genres_table.setItem(row, 1, c_item)
+        self._genres_table.setSortingEnabled(True)
+
+    def _save_genres_to_file(self):
+        import json
+        genre_file = self._lib_config.genre_file if self._lib_config else None
+        if not genre_file:
+            return
+        genres = sorted(
+            self._genres_table.item(r, 0).text()
+            for r in range(self._genres_table.rowCount())
+            if self._genres_table.item(r, 0)
+        )
+        data = {g: g for g in genres}
+        try:
+            Path(genre_file).parent.mkdir(parents=True, exist_ok=True)
+            with open(genre_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to save genres:\n{e}')
+
+    def _genre_add(self):
+        name, ok = QInputDialog.getText(self, 'Add Genre', 'Genre name:')
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        existing = [
+            self._genres_table.item(r, 0).text()
+            for r in range(self._genres_table.rowCount())
+            if self._genres_table.item(r, 0)
+        ]
+        if name in existing:
+            QMessageBox.warning(self, 'Duplicate', f'"{name}" already exists.')
+            return
+        row = self._genres_table.rowCount()
+        self._genres_table.insertRow(row)
+        self._genres_table.setItem(row, 0, QTableWidgetItem(name))
+        c_item = QTableWidgetItem('0')
+        c_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._genres_table.setItem(row, 1, c_item)
+        self._save_genres_to_file()
+
+    def _genre_rename(self):
+        row = self._genres_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, 'Rename', 'Select a genre first.')
+            return
+        item = self._genres_table.item(row, 0)
+        if not item:
+            return
+        old = item.text()
+        name, ok = QInputDialog.getText(self, 'Rename Genre', 'New name:', text=old)
+        if not ok or not name.strip() or name.strip() == old:
+            return
+        item.setText(name.strip())
+        self._save_genres_to_file()
+
+    def _genre_delete(self):
+        row = self._genres_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, 'Delete', 'Select a genre first.')
+            return
+        name = self._genres_table.item(row, 0).text() if self._genres_table.item(row, 0) else ''
+        if QMessageBox.question(
+            self, 'Delete Genre', f'Delete "{name}"?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        ) == QMessageBox.StandardButton.Yes:
+            self._genres_table.removeRow(row)
+            self._save_genres_to_file()
 
     # ── Workers ───────────────────────────────────────────────────────
     def _run_extract(self):

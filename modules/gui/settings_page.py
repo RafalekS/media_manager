@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QSpinBox, QDoubleSpinBox,
     QPushButton, QGroupBox, QScrollArea, QMessageBox,
     QFileDialog, QCheckBox, QFrame, QComboBox,
-    QListWidget, QInputDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
@@ -223,32 +222,6 @@ class SettingsPage(QWidget):
 
         self._layout.addWidget(html_grp)
 
-        # ── Genres ───────────────────────────────────────────────────
-        self._genres_grp = QGroupBox('Genres')
-        genres_lay = QVBoxLayout(self._genres_grp)
-
-        self._genres_list = QListWidget()
-        self._genres_list.setMaximumHeight(200)
-        self._genres_list.setSortingEnabled(True)
-        genres_lay.addWidget(self._genres_list)
-
-        genre_btns = QHBoxLayout()
-        btn_genre_add = QPushButton('Add')
-        btn_genre_add.clicked.connect(self._genre_add)
-        btn_genre_rename = QPushButton('Rename')
-        btn_genre_rename.setObjectName('btn_secondary')
-        btn_genre_rename.clicked.connect(self._genre_rename)
-        btn_genre_del = QPushButton('Delete')
-        btn_genre_del.setObjectName('btn_secondary')
-        btn_genre_del.clicked.connect(self._genre_delete)
-        genre_btns.addWidget(btn_genre_add)
-        genre_btns.addWidget(btn_genre_rename)
-        genre_btns.addWidget(btn_genre_del)
-        genre_btns.addStretch()
-        genres_lay.addLayout(genre_btns)
-
-        self._layout.addWidget(self._genres_grp)
-
         # ── Save button ──────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_save = QPushButton('Save Settings')
@@ -308,7 +281,6 @@ class SettingsPage(QWidget):
         self._rate_limit.setValue(lib_config.data.get('rate_limit', 0.25))
 
         self._rebuild_providers(mt, lib_config)
-        self._load_genres_ui(lib_config)
 
     def _on_scan_mode_changed(self, mode: str):
         files_mode = (mode == 'files')
@@ -499,80 +471,7 @@ class SettingsPage(QWidget):
             QMessageBox.critical(self, 'Error', f'Failed to save settings:\n{e}')
             return
 
-        self._save_genres_ui()
         QMessageBox.information(self, 'Saved', 'Settings saved.')
-
-    # ── Genres ────────────────────────────────────────────────────────
-    def _load_genres_ui(self, lib_config):
-        self._genres_list.clear()
-        genre_file = lib_config.genre_file if lib_config else None
-        has_genre_file = genre_file and Path(genre_file).exists()
-        self._genres_grp.setVisible(bool(genre_file))
-        if not has_genre_file:
-            return
-        try:
-            with open(genre_file, 'r', encoding='utf-8') as f:
-                raw = json.load(f)
-            genres = sorted(raw.values()) if isinstance(raw, dict) else sorted(raw)
-            for g in genres:
-                self._genres_list.addItem(g)
-        except Exception as e:
-            QMessageBox.warning(self, 'Genres', f'Could not load genre file:\n{e}')
-
-    def _save_genres_ui(self):
-        if not self._lib_config:
-            return
-        genre_file = self._lib_config.genre_file
-        if not genre_file:
-            return
-        genres = sorted(
-            self._genres_list.item(i).text()
-            for i in range(self._genres_list.count())
-        )
-        data = {g: g for g in genres}
-        try:
-            Path(genre_file).parent.mkdir(parents=True, exist_ok=True)
-            with open(genre_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            QMessageBox.critical(self, 'Error', f'Failed to save genres:\n{e}')
-
-    def _genre_add(self):
-        name, ok = QInputDialog.getText(self, 'Add Genre', 'Genre name:')
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-        # Check duplicate
-        existing = [self._genres_list.item(i).text() for i in range(self._genres_list.count())]
-        if name in existing:
-            QMessageBox.warning(self, 'Duplicate', f'"{name}" already exists.')
-            return
-        self._genres_list.addItem(name)
-        self._genres_list.sortItems()
-
-    def _genre_rename(self):
-        item = self._genres_list.currentItem()
-        if not item:
-            QMessageBox.information(self, 'Rename', 'Select a genre first.')
-            return
-        old = item.text()
-        name, ok = QInputDialog.getText(self, 'Rename Genre', 'New name:', text=old)
-        if not ok or not name.strip() or name.strip() == old:
-            return
-        item.setText(name.strip())
-        self._genres_list.sortItems()
-
-    def _genre_delete(self):
-        item = self._genres_list.currentItem()
-        if not item:
-            QMessageBox.information(self, 'Delete', 'Select a genre first.')
-            return
-        if QMessageBox.question(
-            self, 'Delete Genre',
-            f'Delete "{item.text()}"?',
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        ) == QMessageBox.StandardButton.Yes:
-            self._genres_list.takeItem(self._genres_list.row(item))
 
     # ──────────────────────────────────────────────────────────────────
     def _browse_folder(self, edit: QLineEdit):
