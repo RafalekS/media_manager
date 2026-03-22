@@ -300,6 +300,9 @@ class FolderSanitizerDialog(QDialog):
         row_idx = orig_item.data(Qt.ItemDataRole.UserRole)
         if row_idx is not None:
             self._rows[row_idx]['cleaned'] = item.text()
+        chk = self._table.item(r, _COL_CHECK)
+        if chk:
+            chk.setCheckState(Qt.CheckState.Checked)
         self._update_status()
 
     def _on_item_clicked(self, item: QTableWidgetItem):
