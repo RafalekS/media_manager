@@ -668,6 +668,26 @@ class MainWindow(QMainWindow):
         )
         lay.addWidget(html_grp)
 
+        # ── Sanitize Folder Names ─────────────────────────────────────
+        san_grp = QGroupBox('Sanitize Folder Names')
+        san_lay = QVBoxLayout(san_grp)
+        san_desc = QLabel(
+            'Bulk-rename folders in your library: replaces dots, underscores and dashes with '
+            'spaces, strips version numbers and scene-group tags (e.g. TENOKE, v1.401).\n'
+            'A preview dialog lets you review and edit each name before any files are touched.'
+        )
+        san_desc.setProperty('role', 'muted')
+        san_desc.setWordWrap(True)
+        san_lay.addWidget(san_desc)
+        san_row = QHBoxLayout()
+        self._san_btn = QPushButton('Open Sanitizer')
+        self._san_btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        self._san_btn.clicked.connect(self._open_sanitizer)
+        san_row.addWidget(self._san_btn)
+        san_row.addStretch()
+        san_lay.addLayout(san_row)
+        lay.addWidget(san_grp)
+
         lay.addStretch()
         scroll.setWidget(inner)
         return scroll
@@ -938,6 +958,11 @@ class MainWindow(QMainWindow):
             HTMLWorker(self._lib_config, self._plugin, self._log.stream),
             self._html_run_btn, self._html_stop_btn, self._html_progress,
         )
+
+    def _open_sanitizer(self):
+        from modules.gui.folder_sanitizer import FolderSanitizerDialog
+        dlg = FolderSanitizerDialog(self._lib_config, self)
+        dlg.exec()
 
     def _start_worker(self, worker, run_btn=None, stop_btn=None, progress=None):
         if self._worker and self._worker.isRunning():
