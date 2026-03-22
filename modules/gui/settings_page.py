@@ -50,6 +50,9 @@ _LIBRARY_PROVIDERS = {
         ('itchio',     'itch.io',     False, [
             ('itch_api_key',      'API Key',    True),
         ]),
+        ('steam',      'Steam',       False, [
+            ('steam_api_key',     'API Key',    True),
+        ]),
     ],
     'movies': [
         ('tmdb',   'TMDB',   True,  [('tmdb_api_key',   'API Key',   True)]),

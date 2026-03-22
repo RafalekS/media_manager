@@ -8,6 +8,7 @@ _REGISTRY = {
     'rawg':             ('modules.providers.rawg',             'RAWGProvider'),
     'giantbomb':        ('modules.providers.giantbomb',        'GiantBombProvider'),
     'itchio':           ('modules.providers.itchio',           'ItchIOProvider'),
+    'steam':            ('modules.providers.steam',            'SteamProvider'),
     # Movies
     'tmdb':             ('modules.providers.tmdb',             'TMDBProvider'),
     'omdb':             ('modules.providers.omdb',             'OMDBProvider'),
