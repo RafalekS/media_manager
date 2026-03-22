@@ -134,27 +134,37 @@ def _build_provider(name: str, api_cfg: dict):
 
 def _query_with_supplements(primary, supplements, query: str) -> dict:
     """
-    Query primary provider. If it returns data, merge supplement data
-    to fill in missing fields. Returns normalized dict or None.
-    Records provider_source as the class name that found the primary result.
+    Query primary provider first. If it returns a result, merge supplement
+    data to fill in missing fields.
+    If primary returns nothing, try each supplement as a fallback primary.
+    Records provider_source as the class name that found the result.
     """
     result = primary.search_and_extract(query)
 
-    if not result or not result.get('name'):
-        return None
+    if result and result.get('name'):
+        result['provider_source'] = type(primary).__name__.replace('Provider', '')
+        # Fill in missing fields from supplements
+        for sup in supplements:
+            try:
+                sup_result = sup.search_and_extract(query)
+                if sup_result and sup_result.get('name'):
+                    _merge_supplement(result, sup_result)
+            except Exception as e:
+                print(f'    [Supplement] Error: {e}')
+        return result
 
-    result['provider_source'] = type(primary).__name__.replace('Provider', '')
-
-    # Fill in missing fields from supplement providers
+    # Primary found nothing — try supplements as fallback primaries
     for sup in supplements:
         try:
             sup_result = sup.search_and_extract(query)
             if sup_result and sup_result.get('name'):
-                _merge_supplement(result, sup_result)
+                sup_result['provider_source'] = type(sup).__name__.replace('Provider', '')
+                print(f'    [Fallback] Found via {type(sup).__name__}: {sup_result.get("name")}')
+                return sup_result
         except Exception as e:
-            print(f'    [Supplement] Error: {e}')
+            print(f'    [Fallback] Error from {type(sup).__name__}: {e}')
 
-    return result
+    return None
 
 
 def _merge_supplement(primary: dict, supplement: dict):
