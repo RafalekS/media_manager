@@ -5,6 +5,7 @@ __pycache__/
 .env
 config/ui_state.json
 config/libraries/*.json
+!config/libraries/*_genres.json
 data/
 *.log
 backup/
