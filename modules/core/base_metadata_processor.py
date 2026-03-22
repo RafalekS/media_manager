@@ -144,6 +144,7 @@ def _query_with_supplements(primary, supplements, query: str) -> dict:
     primary_name = type(primary).__name__.replace('Provider', '')
 
     if result and result.get('name'):
+        print(f'  [{primary_name}] Found: {result.get("name")}')
         result['provider_source'] = primary_name
         for sup in supplements:
             sup_name = type(sup).__name__.replace('Provider', '')
