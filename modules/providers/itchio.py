@@ -50,7 +50,7 @@ class ItchIOProvider(MetadataProvider):
         try:
             r = requests.get(
                 'https://itch.io/search',
-                params={'q': query, 'type': 'game'},
+                params={'q': query},
                 cookies={'itchio_token': self._api_key},
                 headers={'User-Agent': 'Mozilla/5.0 (compatible)'},
                 timeout=15,
