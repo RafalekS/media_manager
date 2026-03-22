@@ -88,8 +88,9 @@ class FailedItemsDialog(QDialog):
         super().__init__(parent)
         self._lib_config      = lib_config
         self._plugin          = plugin
-        self._worker          = None
-        self._pending_results = {}
+        self._worker           = None
+        self._finished_workers = []   # kept alive until thread fully exits
+        self._pending_results  = {}
         self._genres          = self._load_genres()
         self._ui_state        = ui_state
         self._state_key       = f'failed_dialog_{plugin.media_type}'
@@ -540,6 +541,9 @@ class FailedItemsDialog(QDialog):
     def _on_retry_done(self, success: bool, message: str, found_results: dict):
         self._progress.setVisible(False)
         self._set_buttons_enabled(True)
+        if self._worker is not None:
+            self._finished_workers.append(self._worker)
+            QTimer.singleShot(0, self._drop_finished_workers)
         self._worker = None
         self._pending_results = found_results
         self._append_retry_log(f'\n[DONE] {message}\n')
@@ -634,6 +638,9 @@ class FailedItemsDialog(QDialog):
         if self._pending_results:
             self._btn_save_found.setText(f'Save Found ({len(self._pending_results)})')
             self._btn_save_found.setVisible(True)
+
+    def _drop_finished_workers(self):
+        self._finished_workers.clear()
 
     def _set_buttons_enabled(self, enabled: bool):
         for btn in (self._btn_manual, self._btn_skip, self._btn_retry,
