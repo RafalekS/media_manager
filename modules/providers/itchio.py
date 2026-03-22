@@ -45,9 +45,7 @@ class ItchIOProvider(MetadataProvider):
             return []
 
     def _web_search(self, query: str) -> list:
-        """Authenticated web search — finds adult games the public API excludes.
-        Extracts (id, title) pairs from HTML to pick the best match before
-        fetching full details, so we don't waste calls on wrong games."""
+        """Authenticated web search — finds adult games the public API excludes."""
         import re, difflib
         try:
             r = requests.get(
@@ -61,18 +59,19 @@ class ItchIOProvider(MetadataProvider):
             )
             r.raise_for_status()
 
-            # Extract (game_id, title) pairs from the HTML
-            pairs = re.findall(
-                r'data-game_id=["\'](\d+)["\'].*?'
-                r'class="[^"]*game_title[^"]*"[^>]*>\s*([^<]+?)\s*<',
-                r.text, re.DOTALL,
-            )
-            if not pairs:
+            game_ids = re.findall(r'data-game_id=["\'](\d+)["\']', r.text)
+            titles   = re.findall(r'class="[^"]*game_title[^"]*"[^>]*>\s*([^<]+?)\s*<', r.text)
+
+            if not game_ids:
                 return []
 
-            # Pick the best matching title without fetching all games
+            # Pair IDs with titles (appear in the same order in the HTML)
+            pairs = list(zip(game_ids, titles)) if len(titles) == len(game_ids) else [(gid, '') for gid in game_ids]
+            print(f'[itch.io] web search: {len(pairs)} results')
+
+            # Pick best matching title
             q = query.lower().strip()
-            best_id, best_title, best_score = None, None, -1.0
+            best_id, best_title, best_score = game_ids[0], '', -1.0
             for gid, title in pairs:
                 t = title.strip().lower()
                 if t == q:
@@ -83,9 +82,9 @@ class ItchIOProvider(MetadataProvider):
                     best_score = score
                     best_id, best_title = gid, title.strip()
 
-            print(f'[itch.io] web search: {len(pairs)} results, best match "{best_title}" (score {best_score:.2f})')
+            print(f'[itch.io] best match: "{best_title}" id={best_id} score={best_score:.2f}')
 
-            if best_score < 0.6:
+            if best_score < 0.6 and best_title:
                 return []
 
             game = self._fetch_by_id(best_id)
