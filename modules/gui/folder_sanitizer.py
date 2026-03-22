@@ -252,9 +252,7 @@ class FolderSanitizerDialog(QDialog):
             # Checkbox col
             chk_item = QTableWidgetItem()
             chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            chk_item.setCheckState(
-                Qt.CheckState.Checked if is_changed else Qt.CheckState.Unchecked
-            )
+            chk_item.setCheckState(Qt.CheckState.Unchecked)
             self._table.setItem(r, _COL_CHECK, chk_item)
 
             # Genre (read-only)
