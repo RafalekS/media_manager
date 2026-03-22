@@ -188,11 +188,12 @@ class MainWindow(QMainWindow):
         self._stack.setObjectName('content_widget')
         top_lay.addWidget(self._stack, 1)
 
-        # Shared log panel at bottom
+        # Shared log panel at bottom (hidden on non-operational tabs)
         self._log = LogWidget()
         self._main_splitter.addWidget(self._log)
         self._main_splitter.setSizes([700, 200])
         self._main_splitter.setCollapsible(1, True)
+        self._log.setVisible(False)  # hidden until an operational tab is selected
 
         # Build all pages
         self._dash_page    = self._build_dashboard_page()
@@ -778,8 +779,12 @@ class MainWindow(QMainWindow):
             self._global_config.set_active_library(media_type)
 
     # ── Navigation ────────────────────────────────────────────────────
+    _LOG_PAGES = {_PAGE_EXTRACT, _PAGE_SCAN, _PAGE_METADATA,
+                  _PAGE_FAILED, _PAGE_ORGANIZE, _PAGE_HTML}
+
     def _on_nav_changed(self, row: int):
         self._stack.setCurrentIndex(row)
+        self._log.setVisible(row in self._LOG_PAGES)
         if row == _PAGE_DASHBOARD:
             self._refresh_dashboard()
         elif row == _PAGE_EXTRACT:
