@@ -292,7 +292,8 @@ class SettingsPage(QWidget):
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
         self._rate_limit.setValue(lib_config.data.get('rate_limit', 0.25))
 
-        noise = lib_config.data.get('sanitize_noise_words', [])
+        from modules.gui.folder_sanitizer import _DEFAULT_NOISE_WORDS
+        noise = lib_config.data.get('sanitize_noise_words', _DEFAULT_NOISE_WORDS)
         self._noise_words.setText(', '.join(noise))
 
         self._rebuild_providers(mt, lib_config)
