@@ -23,15 +23,13 @@ from modules.core.config_manager import GlobalConfig
 
 # ── Release-tag / noise words to strip ────────────────────────────────────────
 _NOISE_WORDS = {
-    # Scene groups
+    # Unambiguous scene group tags (not real words)
     'TENOKE', 'CODEX', 'DODI', 'FLT', 'SKIDROW', 'PLAZA', 'CPY', 'RELOADED',
-    'HOODLUM', 'PROPHET', 'SIMPLEX', 'TiNYiSO', 'TINYI SO', 'RAZOR1911',
-    'DEVIANCE', 'EMPRESS', 'RUNE', 'DARKSIDERS', 'POSTMORTEM', 'CHRONOS',
-    'ORIGINS', 'FCKDRM', 'KAOS', 'REVOLT', 'ANOMALY', 'ALIAS', 'NOFEAR',
-    'DARKSiDERS', 'DOGE', 'FIGA', 'GOLDBERG', 'STEAM', 'CRACK',
-    # Common noise keywords
-    'Update', 'Repack', 'Build', 'GOG', 'DLC', 'MULTI', 'MULTi',
-    'Proper', 'PROPER', 'RETAIL', 'FINAL', 'FULL',
+    'HOODLUM', 'PROPHET', 'SIMPLEX', 'TiNYiSO', 'RAZOR1911', 'DEVIANCE',
+    'EMPRESS', 'FCKDRM', 'KAOS', 'NOFEAR', 'DARKSiDERS', 'DARKSIDERS',
+    'DOGE', 'FIGA', 'GOLDBERG',
+    # Unambiguous technical noise
+    'Update', 'Repack', 'MULTi',
 }
 
 # Compiled pattern: whole-word match for each noise word (case-insensitive)
@@ -230,6 +228,10 @@ class FolderSanitizerDialog(QDialog):
                 continue
 
         self._populate_table()
+        QTimer.singleShot(0, self._restore_state)
+
+    def _restore_state(self):
+        self._ui_state.restore_table(self._table, _STATE_KEY)
 
     # ── Table population ───────────────────────────────────────────────────────
 
@@ -281,7 +283,6 @@ class FolderSanitizerDialog(QDialog):
 
         self._table.blockSignals(False)
         self._table.setSortingEnabled(True)
-        self._ui_state.restore_table(self._table, _STATE_KEY)
         self._update_status()
 
     def _apply_filter(self):
