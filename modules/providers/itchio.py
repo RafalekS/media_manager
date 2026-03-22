@@ -56,14 +56,14 @@ class ItchIOProvider(MetadataProvider):
         matches by URL slug, then fetches metadata via Open Graph tags.
         Searches page 1 and page 2 to improve coverage."""
         try:
-            base_kwargs = {
-                'headers': {'User-Agent': 'Mozilla/5.0 (compatible)'},
-                'timeout': 15,
-            }
+            headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
             if self._session_cookie:
-                base_kwargs['cookies'] = {'itchio_token': self._session_cookie}
+                # Send as raw Cookie header — requests' cookie dict re-encodes = signs
+                # in JWT tokens which breaks itch.io session auth
+                headers['Cookie'] = f'itchio_token={self._session_cookie}'
             else:
-                base_kwargs['headers']['Authorization'] = f'Bearer {self._api_key}'
+                headers['Authorization'] = f'Bearer {self._api_key}'
+            base_kwargs = {'headers': headers, 'timeout': 15}
 
             q_slug = query.lower().strip().replace(' ', '-')
             seen, urls = set(), []
@@ -123,12 +123,10 @@ class ItchIOProvider(MetadataProvider):
     def _fetch_from_page(self, game_url: str) -> dict | None:
         """Fetch game metadata from its itch.io page via Open Graph tags."""
         try:
-            req_kwargs = {
-                'headers': {'User-Agent': 'Mozilla/5.0 (compatible)'},
-                'timeout': 10,
-            }
+            headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
             if self._session_cookie:
-                req_kwargs['cookies'] = {'itchio_token': self._session_cookie}
+                headers['Cookie'] = f'itchio_token={self._session_cookie}'
+            req_kwargs = {'headers': headers, 'timeout': 10}
 
             r = requests.get(game_url, **req_kwargs)
             r.raise_for_status()
