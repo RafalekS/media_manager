@@ -11,7 +11,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QLabel, QPushButton,
     QTableView, QHeaderView, QLineEdit, QComboBox, QFrame,
     QCheckBox, QMessageBox, QDialog, QPlainTextEdit, QScrollArea,
     QMenu, QStyledItemDelegate, QApplication,
@@ -333,14 +333,13 @@ class LibraryBrowser(QWidget):
             None,
         )
 
-        # Genre column index for filter
-        self._genre_col_idx = next(
-            (i for i, (key, _, _) in enumerate(plugin.columns) if key == 'genre'),
+        # Logical table-column index of the genre column (None if not present)
+        self._table_genre_col = next(
+            (i + 1 for i, (key, _, _) in enumerate(plugin.columns) if key == 'genre'),
             None,
         )
-        self._table_genre_col = (
-            self._genre_col_idx + 1 if self._genre_col_idx is not None else None
-        )
+
+        self._col_filters: dict = {}   # logical_col_idx -> QLineEdit | QComboBox
 
         self._debounce = QTimer()
         self._debounce.setSingleShot(True)
@@ -372,29 +371,26 @@ class LibraryBrowser(QWidget):
 
         layout.addLayout(hdr)
 
-        # Filter row
-        flt = QHBoxLayout()
-        self._search = QLineEdit()
-        self._search.setPlaceholderText('Search...')
-        self._search.textChanged.connect(self._apply_filter)
-        flt.addWidget(self._search, 2)
+        # Per-column filter panel
+        self._filter_debounce = QTimer()
+        self._filter_debounce.setSingleShot(True)
+        self._filter_debounce.setInterval(250)
+        self._filter_debounce.timeout.connect(self._apply_filter)
 
-        self._genre_combo = QComboBox()
-        self._genre_combo.setMinimumWidth(160)
-        self._genre_combo.setStyleSheet("combobox-popup: 0;")
-        self._genre_combo.view().setStyleSheet("max-height: 300px;")
-        self._genre_combo.addItem('All Genres')
-        self._genre_combo.currentIndexChanged.connect(self._apply_filter)
-        flt.addWidget(self._genre_combo, 1)
+        layout.addWidget(self._build_filter_panel())
 
-        # Wrap text — restore saved state
+        # Options row: clear + wrap
+        opts = QHBoxLayout()
+        btn_clear = QPushButton('Clear Filters')
+        btn_clear.clicked.connect(self._clear_filters)
+        opts.addWidget(btn_clear)
+        opts.addStretch()
         wrap_saved = self._ui_state.get(f'{self._state_key}_wrap', False)
         self._chk_wrap = QCheckBox('Wrap text')
         self._chk_wrap.setChecked(wrap_saved)
         self._chk_wrap.toggled.connect(self._on_wrap_toggled)
-        flt.addWidget(self._chk_wrap)
-
-        layout.addLayout(flt)
+        opts.addWidget(self._chk_wrap)
+        layout.addLayout(opts)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -455,6 +451,69 @@ class LibraryBrowser(QWidget):
         self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
         self._build_columns()
+
+    def _build_filter_panel(self) -> QWidget:
+        """Grid of per-column filter inputs (4 per row)."""
+        panel = QWidget()
+        grid = QGridLayout(panel)
+        grid.setContentsMargins(0, 2, 0, 2)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
+
+        # Filterable columns: (field_key, display_label, logical_col_idx)
+        cols = [('name', 'Name', 0)]
+        for i, (key, label, _) in enumerate(self._plugin.columns):
+            if key != 'cover_url':
+                cols.append((key, label, i + 1))
+
+        COLS_PER_ROW = 4
+        for pos, (key, label, col_idx) in enumerate(cols):
+            grow = pos // COLS_PER_ROW
+            gcol = (pos % COLS_PER_ROW) * 2
+
+            lbl = QLabel(label + ':')
+            lbl.setProperty('role', 'muted')
+            grid.addWidget(lbl, grow, gcol, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            if key == 'genre':
+                w = QComboBox()
+                w.setMinimumWidth(130)
+                w.setStyleSheet("combobox-popup: 0;")
+                w.view().setStyleSheet("max-height: 300px;")
+                w.addItem('All')
+                w.currentIndexChanged.connect(self._apply_filter)
+            else:
+                w = QLineEdit()
+                w.setPlaceholderText('...')
+                w.textChanged.connect(lambda _: self._filter_debounce.start())
+
+            grid.addWidget(w, grow, gcol + 1)
+            self._col_filters[col_idx] = w
+
+        # Restore persisted filter values
+        for col_idx, w in self._col_filters.items():
+            saved = self._ui_state.get(f'{self._state_key}_flt_{self._col_key_for(col_idx)}', '')
+            if not saved:
+                continue
+            w.blockSignals(True)
+            if isinstance(w, QComboBox):
+                idx = w.findText(saved)
+                if idx >= 0:
+                    w.setCurrentIndex(idx)
+            else:
+                w.setText(saved)
+            w.blockSignals(False)
+
+        return panel
+
+    def _col_key_for(self, logical_idx: int) -> str:
+        """Field key for a logical column index (0 = name, 1+ = plugin columns)."""
+        if logical_idx == 0:
+            return 'name'
+        plugin_idx = logical_idx - 1
+        if plugin_idx < len(self._plugin.columns):
+            return self._plugin.columns[plugin_idx][0]
+        return str(logical_idx)
 
     def _build_columns(self):
         headers = ['Name'] + [col[1] for col in self._plugin.columns]
@@ -549,16 +608,21 @@ class LibraryBrowser(QWidget):
             vh.setMinimumSectionSize(_DEFAULT_ROW_HEIGHT)
 
     def _populate_genre_filter(self):
+        if self._table_genre_col is None:
+            return
+        w = self._col_filters.get(self._table_genre_col)
+        if not isinstance(w, QComboBox):
+            return
         genres = sorted({item.get('genre', '') for item in self._data if item.get('genre')})
-        current = self._genre_combo.currentText()
-        self._genre_combo.blockSignals(True)
-        self._genre_combo.clear()
-        self._genre_combo.addItem('All Genres')
+        current = w.currentText()
+        w.blockSignals(True)
+        w.clear()
+        w.addItem('All')
         for g in genres:
-            self._genre_combo.addItem(g)
-        idx = self._genre_combo.findText(current)
-        self._genre_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self._genre_combo.blockSignals(False)
+            w.addItem(g)
+        idx = w.findText(current)
+        w.setCurrentIndex(idx if idx >= 0 else 0)
+        w.blockSignals(False)
 
     # ── Cover image loading ────────────────────────────────────────────
     def _start_cover_load(self):
@@ -722,31 +786,51 @@ class LibraryBrowser(QWidget):
 
     # ──────────────────────────────────────────────────────────────────
     def _apply_filter(self):
-        search = self._search.text().strip().lower()
-        genre  = self._genre_combo.currentText()
-        if genre == 'All Genres':
-            genre = ''
+        # Build active filters: {logical_col_idx: pattern_lower}
+        active = {}
+        for col_idx, w in self._col_filters.items():
+            if isinstance(w, QComboBox):
+                val = w.currentText()
+                if val and val != 'All':
+                    active[col_idx] = val.lower()
+            else:
+                val = w.text().strip().lower()
+                if val:
+                    active[col_idx] = val
 
+        visible_count = 0
         for row in range(self._model.rowCount()):
-            if genre and self._table_genre_col is not None:
-                cell = self._model.item(row, self._table_genre_col)
-                genre_match = bool(cell and cell.text() == genre)
-            else:
-                genre_match = True
+            visible = True
+            for col_idx, pattern in active.items():
+                cell = self._model.item(row, col_idx)
+                if cell:
+                    text = (str(cell.data(_URL_ROLE) or '')
+                            if col_idx == self._cover_col_logical
+                            else cell.text()).lower()
+                else:
+                    text = ''
+                if pattern not in text:
+                    visible = False
+                    break
+            self._table.setRowHidden(row, not visible)
+            if visible:
+                visible_count += 1
 
-            if search:
-                search_match = False
-                for col in range(self._model.columnCount()):
-                    cell = self._model.item(row, col)
-                    if cell:
-                        text = cell.data(_URL_ROLE) if col == self._cover_col_logical else cell.text()
-                        if text and search in str(text).lower():
-                            search_match = True
-                            break
-            else:
-                search_match = True
+        total = self._model.rowCount()
+        if visible_count == total:
+            self._lbl_status.setText(f'{total} items')
+        else:
+            self._lbl_status.setText(f'{visible_count} / {total} items')
 
-            self._table.setRowHidden(row, not (genre_match and search_match))
+    def _clear_filters(self):
+        for w in self._col_filters.values():
+            w.blockSignals(True)
+            if isinstance(w, QComboBox):
+                w.setCurrentIndex(0)
+            else:
+                w.clear()
+            w.blockSignals(False)
+        self._apply_filter()
 
     # ──────────────────────────────────────────────────────────────────
     def _on_header_changed(self, *_):
@@ -756,10 +840,18 @@ class LibraryBrowser(QWidget):
     def _save_table_state(self):
         self._ui_state.save_table(self._table, self._state_key)
 
+    def _save_filter_state(self):
+        for col_idx, w in self._col_filters.items():
+            key = f'{self._state_key}_flt_{self._col_key_for(col_idx)}'
+            val = w.currentText() if isinstance(w, QComboBox) else w.text()
+            self._ui_state.set(key, val if val != 'All' else '')
+        self._ui_state.save()
+
     def save_state(self):
         self._debounce.stop()
         if self._state_loaded:
             self._save_table_state()
+        self._save_filter_state()
 
     def stop_worker(self):
         if self._worker and self._worker.isRunning():
@@ -774,4 +866,5 @@ class LibraryBrowser(QWidget):
         self._debounce.stop()
         if self._state_loaded:
             self._save_table_state()
+        self._save_filter_state()
         super().hideEvent(event)
