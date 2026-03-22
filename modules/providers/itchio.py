@@ -59,12 +59,14 @@ class ItchIOProvider(MetadataProvider):
             )
             r.raise_for_status()
             game_ids = re.findall(r'data-game_id=["\'](\d+)["\']', r.text)
+            print(f'[itch.io] web search HTTP {r.status_code}, found {len(game_ids)} game IDs: {game_ids[:8]}')
             if not game_ids:
                 return []
             results = []
             for gid in game_ids[:5]:
                 game = self._fetch_by_id(gid)
                 if game:
+                    print(f'[itch.io]   id={gid} → {game.get("title")}')
                     results.append(game)
             return results
         except Exception as e:
