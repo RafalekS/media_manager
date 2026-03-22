@@ -31,7 +31,12 @@ class ItchIOProvider(MetadataProvider):
                 timeout=15,
             )
             r.raise_for_status()
-            return r.json().get('games') or []
+            raw = r.json()
+            results = raw.get('games') or []
+            print(f'[itch.io] query={query!r} → {len(results)} result(s)')
+            for g in results[:5]:
+                print(f'  - {g.get("title","?")}  id={g.get("id")}')
+            return results
         except Exception as e:
             print(f'[itch.io] Search error: {e}')
             return []
