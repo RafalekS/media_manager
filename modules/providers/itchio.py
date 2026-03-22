@@ -18,7 +18,8 @@ class ItchIOProvider(MetadataProvider):
 
     def __init__(self, api_config: dict):
         super().__init__(api_config)
-        self._api_key = api_config.get('itch_api_key', '')
+        self._api_key        = api_config.get('itch_api_key', '')
+        self._session_cookie = api_config.get('itch_session_cookie', '')
 
     def authenticate(self) -> bool:
         return bool(self._api_key)
@@ -49,15 +50,19 @@ class ItchIOProvider(MetadataProvider):
         """Authenticated web search for adult games excluded from the public API.
         Matches on URL slug (e.g. 'divine-heel') which is reliable and present in HTML."""
         try:
-            r = requests.get(
-                'https://itch.io/search',
-                params={'q': query},
-                headers={
-                    'Authorization': f'Bearer {self._api_key}',
-                    'User-Agent': 'Mozilla/5.0 (compatible)',
-                },
-                timeout=15,
-            )
+            # Session cookie gives full browser auth (needed for adult games).
+            # Fall back to Bearer token if no cookie configured.
+            req_kwargs = {
+                'params':  {'q': query},
+                'headers': {'User-Agent': 'Mozilla/5.0 (compatible)'},
+                'timeout': 15,
+            }
+            if self._session_cookie:
+                req_kwargs['cookies'] = {'itchio_token': self._session_cookie}
+            else:
+                req_kwargs['headers']['Authorization'] = f'Bearer {self._api_key}'
+
+            r = requests.get('https://itch.io/search', **req_kwargs)
             r.raise_for_status()
 
             # Extract (game_id, url) pairs — slug in URL is the reliable title source

@@ -48,7 +48,8 @@ _LIBRARY_PROVIDERS = {
             ('giantbomb_api_key', 'API Key',    True),
         ]),
         ('itchio',     'itch.io',     False, [
-            ('itch_api_key',      'API Key',    True),
+            ('itch_api_key',        'API Key',        True),
+            ('itch_session_cookie', 'Session Cookie', True),
         ]),
         ('steam',      'Steam',       False, [
             ('steam_api_key',     'API Key',    True),
