@@ -51,8 +51,10 @@ class ItchIOProvider(MetadataProvider):
             r = requests.get(
                 'https://itch.io/search',
                 params={'q': query},
-                cookies={'itchio_token': self._api_key},
-                headers={'User-Agent': 'Mozilla/5.0 (compatible)'},
+                headers={
+                    'Authorization': f'Bearer {self._api_key}',
+                    'User-Agent': 'Mozilla/5.0 (compatible)',
+                },
                 timeout=15,
             )
             r.raise_for_status()
@@ -115,14 +117,18 @@ class ItchIOProvider(MetadataProvider):
         results = self.search(query)
         if not results:
             return self._default_item()
-        return self.extract(self._pick_best_match(query, results, name_key='title'))
+        best, score = self._pick_best_match(query, results, name_key='title')
+        if score < 0.6:
+            print(f'[itch.io] Best match "{best.get("title")}" score {score:.2f} below threshold — skipping')
+            return self._default_item()
+        return self.extract(best)
 
-    def _pick_best_match(self, query: str, results: list, name_key: str = 'name') -> dict:
+    def _pick_best_match(self, query: str, results: list, name_key: str = 'name'):
         import difflib
         q = query.lower().strip()
         for r in results:
             if r.get(name_key, '').lower().strip() == q:
-                return r
+                return r, 1.0
         best = results[0]
         best_score = -1.0
         for r in results:
@@ -131,4 +137,4 @@ class ItchIOProvider(MetadataProvider):
             if score > best_score:
                 best_score = score
                 best = r
-        return best
+        return best, best_score
