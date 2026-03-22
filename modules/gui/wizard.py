@@ -26,11 +26,11 @@ _ERROR   = 'error'
 _SKIPPED = 'skipped'
 
 _STATE_CSS = {
-    _PENDING: 'background:#e5e7eb; color:#6b7280;',
-    _CURRENT: 'background:#2563eb; color:#ffffff;',
-    _DONE:    'background:#10b981; color:#ffffff;',
-    _ERROR:   'background:#ef4444; color:#ffffff;',
-    _SKIPPED: 'background:#9ca3af; color:#ffffff;',
+    _PENDING: 'background: palette(button); color: palette(dark);',
+    _CURRENT: 'background: palette(highlight); color: palette(highlighted-text);',
+    _DONE:    'background: #10b981; color: #ffffff;',
+    _ERROR:   'background: #ef4444; color: #ffffff;',
+    _SKIPPED: 'background: palette(mid); color: palette(window-text);',
 }
 
 
@@ -55,14 +55,14 @@ class _StepIndicator(QWidget):
             if i < len(steps) - 1:
                 arrow = QLabel('›')
                 arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                arrow.setStyleSheet('color:#9ca3af; font-size:12pt;')
+                arrow.setStyleSheet('color: palette(mid);')
                 arrow.setFixedWidth(18)
                 row.addWidget(arrow)
 
     def _apply(self, pill: QLabel, state: str):
         pill.setStyleSheet(
             f'{_STATE_CSS[state]} border-radius:13px; padding:3px 8px; '
-            'font-size:8.5pt; font-weight:600;'
+            'font-weight:600;'
         )
 
     def set_state(self, index: int, state: str):
@@ -122,7 +122,6 @@ class _BaseWizard(QDialog):
         layout.addWidget(self._log, 1)
 
         self._status_lbl = QLabel('')
-        self._status_lbl.setMinimumHeight(18)
         layout.addWidget(self._status_lbl)
 
         # Nav row
@@ -191,8 +190,7 @@ class _BaseWizard(QDialog):
                 self._indicator.set_state(i, _PENDING)
 
         self._desc_lbl.setText(step.get('description', ''))
-        self._status_lbl.setText('')
-        self._status_lbl.setStyleSheet('font-size:9pt;')
+        self._set_status('')
         self._progress.setVisible(False)
         self._btn_back.setVisible(index > 0)
         self._btn_skip.setVisible(step.get('skippable', False))
@@ -204,6 +202,12 @@ class _BaseWizard(QDialog):
             self._failures_btn.setVisible(False)
 
         self._on_enter_step(index)
+
+    def _set_status(self, text: str, role: str = ''):
+        self._status_lbl.setText(text)
+        self._status_lbl.setProperty('role', role)
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
 
     def _on_enter_step(self, index: int):
         pass
@@ -259,13 +263,11 @@ class _BaseWizard(QDialog):
         if success:
             self._indicator.set_state(self._current_step, _DONE)
             self._btn_next.setEnabled(True)
-            self._status_lbl.setStyleSheet('color:#10b981; font-size:9pt;')
-            self._status_lbl.setText(message or 'Done.')
+            self._set_status(message or 'Done.', 'status_ok')
         else:
             self._indicator.set_state(self._current_step, _ERROR)
             self._btn_skip.setVisible(True)
-            self._status_lbl.setStyleSheet('color:#ef4444; font-size:9pt;')
-            self._status_lbl.setText(message or 'Failed — check log above.')
+            self._set_status(message or 'Failed — check log above.', 'status_err')
 
     def _drop_finished_workers(self):
         self._finished_workers.clear()
@@ -287,13 +289,11 @@ class _BaseWizard(QDialog):
         failed = self._count_failures()
         if failed == 0:
             self._indicator.set_state(self._current_step, _DONE)
-            self._status_lbl.setStyleSheet('color:#10b981; font-size:9pt;')
-            self._status_lbl.setText('No failures — all items matched successfully!')
+            self._set_status('No failures — all items matched successfully!', 'status_ok')
             self._btn_next.setEnabled(True)
             return
 
-        self._status_lbl.setStyleSheet('color:#f59e0b; font-size:9pt;')
-        self._status_lbl.setText(
+        self._set_status(
             f'{failed} item(s) could not be matched. '
             'Open Failed Items to fix them, or skip.'
         )
@@ -548,9 +548,7 @@ class RebuildWizard(_BaseWizard):
     def _show_wipe_step(self):
         if self._wipe_btn is None:
             self._wipe_btn = QPushButton('⚠  Wipe Now')
-            self._wipe_btn.setStyleSheet(
-                'background:#ef4444; color:#ffffff; font-weight:bold; padding:6px 18px;'
-            )
+            self._wipe_btn.setObjectName('btn_danger')
             self._wipe_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             self._wipe_btn.clicked.connect(self._do_wipe)
             layout = self.layout()
@@ -573,10 +571,9 @@ class RebuildWizard(_BaseWizard):
 
         self._wipe_btn.setVisible(False)
         self._indicator.set_state(0, _DONE)
-        self._status_lbl.setStyleSheet('color:#10b981; font-size:9pt;')
         msg = (f'Deleted: {", ".join(deleted)}'
                if deleted else 'Nothing to delete — files already absent.')
-        self._status_lbl.setText(msg)
+        self._set_status(msg, 'status_ok')
         self._btn_next.setEnabled(True)
 
     def _run_metadata(self):

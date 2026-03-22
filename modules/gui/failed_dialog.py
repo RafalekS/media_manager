@@ -173,7 +173,7 @@ class FailedItemsDialog(QDialog):
 
         log_hdr = QHBoxLayout()
         log_lbl = QLabel('Retry Log')
-        log_lbl.setStyleSheet('font-size:8.5pt; font-weight:600;')
+        log_lbl.setProperty('role', 'muted')
         log_hdr.addWidget(log_lbl)
         btn_clear_log = QPushButton('Clear')
         btn_clear_log.setObjectName('btn_secondary')
@@ -184,15 +184,11 @@ class FailedItemsDialog(QDialog):
 
         self._retry_log = QPlainTextEdit()
         self._retry_log.setReadOnly(True)
-        self._retry_log.setFont(QFont('Consolas', 8))
-        self._retry_log.setMaximumHeight(150)
-        self._retry_log.setStyleSheet(
-            'background:#1c1e26; color:#a8b2d8; border:none; padding:4px;'
-        )
+        self._retry_log.setFont(QFont('Consolas', 9))
         log_lay.addWidget(self._retry_log)
         splitter.addWidget(log_w)
 
-        splitter.setSizes([420, 130])
+        splitter.setSizes([500, 150])
         layout.addWidget(splitter, 1)
 
         # ── Action bar ────────────────────────────────────────────────

@@ -286,8 +286,12 @@ QLabel[role='card_label'] {{
     font-size: 8.5pt;
     color: {t['text_muted']};
 }}
-QLabel[role='status_ok'] {{ color: #10b981; font-size: 9pt; }}
-QLabel[role='status_err'] {{ color: #ef4444; font-size: 9pt; }}
+QLabel[role='status_ok']   {{ color: #10b981; }}
+QLabel[role='status_err']  {{ color: #ef4444; }}
+QLabel[role='status_warn'] {{ color: #f59e0b; }}
+QLabel[role='stat_value']  {{ font-size: 22px; font-weight: bold; background: transparent; }}
+QLabel[role='card_title']  {{ font-size: 11pt; font-weight: bold; background: transparent; }}
+QLabel#sidebar_section     {{ font-size: 8pt; padding: 8px 14px 2px 14px; color: {t['text_muted']}; }}
 
 /* ── Cards / panels ───────────────────────────────────────────────── */
 #wizard_card {{
@@ -338,6 +342,10 @@ QPushButton#btn_secondary {{
     border: 1px solid {t['sec_border']};
 }}
 QPushButton#btn_secondary:hover {{ background: {t['card_bg']}; }}
+
+/* provider badges */
+QLabel#badge_primary    {{ background: {t['accent']}; color: {t['accent_text']}; padding: 1px 6px; border-radius: 2px; }}
+QLabel#badge_supplement {{ background: {t['sec_bg']}; color: {t['sec_fg']}; border: 1px solid {t['sec_border']}; padding: 1px 6px; border-radius: 2px; }}
 
 /* danger */
 QPushButton#btn_danger {{

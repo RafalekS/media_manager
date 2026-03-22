@@ -59,7 +59,8 @@ class _StatCard(QFrame):
         lay.setSpacing(2)
 
         self._val = QLabel(value)
-        self._val.setStyleSheet(f'font-size:22px; font-weight:bold; color:{accent}; background:transparent;')
+        self._val.setProperty('role', 'stat_value')
+        self._val.setStyleSheet(f'color:{accent}; background:transparent;')
         lay.addWidget(self._val)
 
         self._lbl = QLabel(label)
@@ -92,9 +93,8 @@ class _WizardCard(QFrame):
         lay.setSpacing(6)
 
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet(
-            f'font-size:11pt; font-weight:bold; color:{accent}; background:transparent;'
-        )
+        lbl_title.setProperty('role', 'card_title')
+        lbl_title.setStyleSheet(f'color:{accent}; background:transparent;')
         lay.addWidget(lbl_title)
 
         lbl_sub = QLabel(subtitle)
@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
         sb.addWidget(sub)
 
         lib_lbl = QLabel('Library')
-        lib_lbl.setStyleSheet('padding: 8px 14px 2px 14px; font-size:8pt;')
+        lib_lbl.setObjectName('sidebar_section')
         sb.addWidget(lib_lbl)
 
         self._lib_combo = QComboBox()
@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet('color: #333;')
+        sep.setStyleSheet('color: palette(mid);')
         sb.addWidget(sep)
 
         self._nav = QListWidget()
@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
         sb.addWidget(self._nav, 1)
 
         theme_lbl = QLabel('Theme')
-        theme_lbl.setStyleSheet('padding: 8px 14px 2px 14px; font-size:8pt;')
+        theme_lbl.setObjectName('sidebar_section')
         sb.addWidget(theme_lbl)
 
         self._theme_combo = QComboBox()

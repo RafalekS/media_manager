@@ -43,7 +43,7 @@ class LogWidget(QWidget):
 
         toolbar = QHBoxLayout()
         lbl = QLabel("Log Output")
-        lbl.setStyleSheet("font-weight: bold;")
+        lbl.setProperty('role', 'muted')
         toolbar.addWidget(lbl)
         toolbar.addStretch()
 
@@ -64,7 +64,7 @@ class LogWidget(QWidget):
         font.setStyleHint(QFont.StyleHint.Monospace)
         self._text_edit.setFont(font)
         self._text_edit.setStyleSheet(
-            "QPlainTextEdit { border:1px solid #aaa; border-radius:4px; padding:4px; }"
+            "QPlainTextEdit { border:1px solid palette(mid); border-radius:4px; padding:4px; }"
         )
         layout.addWidget(self._text_edit)
 

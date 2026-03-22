@@ -318,7 +318,6 @@ class SettingsPage(QWidget):
             hdr = QHBoxLayout()
 
             chk = QCheckBox(display_name)
-            chk.setStyleSheet('font-weight: bold;')
             if is_primary:
                 chk.setChecked(True)
                 chk.setEnabled(False)   # primary always on
@@ -327,11 +326,7 @@ class SettingsPage(QWidget):
             hdr.addWidget(chk)
 
             badge = QLabel('Primary' if is_primary else 'Supplement')
-            badge.setStyleSheet(
-                'color: white; background: #2563eb; padding: 1px 6px; border-radius: 2px; font-size: 8pt;'
-                if is_primary else
-                'color: white; background: #64748b; padding: 1px 6px; border-radius: 2px; font-size: 8pt;'
-            )
+            badge.setObjectName('badge_primary' if is_primary else 'badge_supplement')
             hdr.addWidget(badge)
             hdr.addStretch()
             frame_lay.addLayout(hdr)
