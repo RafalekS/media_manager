@@ -45,8 +45,10 @@ class ItchIOProvider(MetadataProvider):
             return []
 
     def _web_search(self, query: str) -> list:
-        """Authenticated web search — finds adult games the public API excludes."""
-        import re
+        """Authenticated web search — finds adult games the public API excludes.
+        Extracts (id, title) pairs from HTML to pick the best match before
+        fetching full details, so we don't waste calls on wrong games."""
+        import re, difflib
         try:
             r = requests.get(
                 'https://itch.io/search',
@@ -58,17 +60,36 @@ class ItchIOProvider(MetadataProvider):
                 timeout=15,
             )
             r.raise_for_status()
-            game_ids = re.findall(r'data-game_id=["\'](\d+)["\']', r.text)
-            print(f'[itch.io] web search HTTP {r.status_code}, found {len(game_ids)} game IDs: {game_ids[:8]}')
-            if not game_ids:
+
+            # Extract (game_id, title) pairs from the HTML
+            pairs = re.findall(
+                r'data-game_id=["\'](\d+)["\'].*?'
+                r'class="[^"]*game_title[^"]*"[^>]*>\s*([^<]+?)\s*<',
+                r.text, re.DOTALL,
+            )
+            if not pairs:
                 return []
-            results = []
-            for gid in game_ids[:5]:
-                game = self._fetch_by_id(gid)
-                if game:
-                    print(f'[itch.io]   id={gid} → {game.get("title")}')
-                    results.append(game)
-            return results
+
+            # Pick the best matching title without fetching all games
+            q = query.lower().strip()
+            best_id, best_title, best_score = None, None, -1.0
+            for gid, title in pairs:
+                t = title.strip().lower()
+                if t == q:
+                    best_id, best_title, best_score = gid, title.strip(), 1.0
+                    break
+                score = difflib.SequenceMatcher(None, q, t).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_id, best_title = gid, title.strip()
+
+            print(f'[itch.io] web search: {len(pairs)} results, best match "{best_title}" (score {best_score:.2f})')
+
+            if best_score < 0.6:
+                return []
+
+            game = self._fetch_by_id(best_id)
+            return [game] if game else []
         except Exception as e:
             print(f'[itch.io] Web search error: {e}')
             return []
@@ -119,18 +140,14 @@ class ItchIOProvider(MetadataProvider):
         results = self.search(query)
         if not results:
             return self._default_item()
-        best, score = self._pick_best_match(query, results, name_key='title')
-        if score < 0.6:
-            print(f'[itch.io] Best match "{best.get("title")}" score {score:.2f} below threshold — skipping')
-            return self._default_item()
-        return self.extract(best)
+        return self.extract(self._pick_best_match(query, results, name_key='title'))
 
-    def _pick_best_match(self, query: str, results: list, name_key: str = 'name'):
+    def _pick_best_match(self, query: str, results: list, name_key: str = 'name') -> dict:
         import difflib
         q = query.lower().strip()
         for r in results:
             if r.get(name_key, '').lower().strip() == q:
-                return r, 1.0
+                return r
         best = results[0]
         best_score = -1.0
         for r in results:
@@ -139,4 +156,4 @@ class ItchIOProvider(MetadataProvider):
             if score > best_score:
                 best_score = score
                 best = r
-        return best, best_score
+        return best
