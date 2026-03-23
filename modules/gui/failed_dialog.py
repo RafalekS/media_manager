@@ -254,10 +254,20 @@ class FailedItemsDialog(QDialog):
     def _populate_table(self, failed: dict):
         self._table.setSortingEnabled(False)
         self._table.setRowCount(0)
-        self._table.setRowCount(len(failed))
         self._table.itemChanged.disconnect(self._on_item_changed)
 
-        for row, (clean_name, info) in enumerate(failed.items()):
+        seen_paths = set()
+        entries = []
+        for key, info in failed.items():
+            fp = info.get('full_path', '')
+            if fp and fp in seen_paths:
+                continue
+            if fp:
+                seen_paths.add(fp)
+            entries.append((key, info))
+
+        self._table.setRowCount(len(entries))
+        for row, (clean_name, info) in enumerate(entries):
             # Checkbox col
             chk = QTableWidgetItem()
             chk.setCheckState(Qt.CheckState.Unchecked)
