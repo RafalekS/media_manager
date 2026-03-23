@@ -8,7 +8,7 @@ import json
 import time
 from pathlib import Path
 
-from modules.core.utils import load_metadata_progress, save_metadata_progress
+from modules.core.utils import load_metadata_progress, save_metadata_progress, is_path_skipped
 from modules.providers import get_provider_class
 
 
@@ -233,8 +233,7 @@ def _build_full_collection_scan(lib_config, plugin) -> list:
     """
     from modules.core.base_scanner import _scan_target
     dest = str(lib_config.destination_base)
-    skip = set(lib_config.skip_folders)
-    skip.add('new')
+    skip_list = list(lib_config.skip_folders) + ['new']
     scan_mode  = lib_config.data.get('scan_mode', 'folders')
     extensions = [e.lower() for e in lib_config.data.get('file_extensions', [])]
 
@@ -245,11 +244,11 @@ def _build_full_collection_scan(lib_config, plugin) -> list:
         return []
 
     for genre_dir in sorted(dest_path.iterdir()):
-        if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
+        if not genre_dir.is_dir() or is_path_skipped(genre_dir, skip_list):
             continue
         items.extend(
             i for i in _scan_target(str(genre_dir), plugin.clean_name, scan_mode, extensions)
-            if i['name'].lower() not in skip
+            if not is_path_skipped(Path(i['folder_path']), skip_list)
         )
 
     print(f'[Metadata] Full collection: found {len(items)} items in {dest}')

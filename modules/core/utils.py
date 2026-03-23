@@ -9,6 +9,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def is_path_skipped(path: Path, skip_list: list) -> bool:
+    """Return True if *path* matches any entry in skip_list.
+
+    Each entry may be a bare folder name (e.g. 'New') or a full path
+    (e.g. 'Y:\\Gry\\Emu').  Comparison is always case-insensitive and
+    path-separator-agnostic.
+    """
+    name = path.name.lower()
+    full = str(path).lower().replace('/', '\\').rstrip('\\')
+    for s in skip_list:
+        s_norm = s.lower().replace('/', '\\').rstrip('\\')
+        if s_norm == name or s_norm == full:
+            return True
+    return False
+
+
 # ── Date helpers ─────────────────────────────────────────────────────────────
 
 def convert_unix_to_year(unix_timestamp) -> str:
@@ -78,7 +94,7 @@ def scan_organized_items(destination_base: str, skip_folders: list | None = None
     Returns dict: genre_name -> list of item dicts.
     Each item dict: name, folder_path, genre.
     """
-    skip = {s.lower() for s in (skip_folders or ['new'])}
+    skip_list = list(skip_folders or ['new'])
     result = {}
     total = 0
 
@@ -89,12 +105,12 @@ def scan_organized_items(destination_base: str, skip_folders: list | None = None
 
     print('Scanning organized collection...')
     for genre_dir in sorted(dest.iterdir()):
-        if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
+        if not genre_dir.is_dir() or is_path_skipped(genre_dir, skip_list):
             continue
         items = []
         try:
             for item_dir in genre_dir.iterdir():
-                if item_dir.is_dir() and item_dir.name.lower() not in skip:
+                if item_dir.is_dir() and not is_path_skipped(item_dir, skip_list):
                     items.append({
                         'name': item_dir.name,
                         'folder_path': str(item_dir),

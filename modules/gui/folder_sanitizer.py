@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from modules.gui.ui_state import UIState
 from modules.gui.table_utils import CITableWidgetItem
 from modules.core.config_manager import GlobalConfig
+from modules.core.utils import is_path_skipped
 
 # Default noise words (fallback if not set in library config)
 _DEFAULT_NOISE_WORDS = [
@@ -205,7 +206,7 @@ class FolderSanitizerDialog(QDialog):
 
     def _scan(self):
         dest = self._lib_config.destination_base
-        skip = {s.lower() for s in self._lib_config.skip_folders + ['new']}
+        skip_list = self._lib_config.skip_folders + ['new']
         self._rows.clear()
 
         if not dest.exists():
@@ -213,7 +214,7 @@ class FolderSanitizerDialog(QDialog):
             return
 
         for genre_dir in sorted(dest.iterdir()):
-            if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
+            if not genre_dir.is_dir() or is_path_skipped(genre_dir, skip_list):
                 continue
             try:
                 for item_dir in sorted(genre_dir.iterdir()):

@@ -564,12 +564,13 @@ class SettingsPage(QWidget):
         from modules.core.db import LibraryDB
 
         dest = self._lib_config.destination_base
-        skip = {s.lower() for s in self._lib_config.data.get('skip_folders', []) + ['new']}
+        from modules.core.utils import is_path_skipped
+        skip_list = self._lib_config.data.get('skip_folders', []) + ['new']
 
         path_map = {}
         try:
             for genre_dir in dest.iterdir():
-                if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
+                if not genre_dir.is_dir() or is_path_skipped(genre_dir, skip_list):
                     continue
                 for item_dir in genre_dir.iterdir():
                     if item_dir.is_dir():
@@ -605,20 +606,20 @@ class SettingsPage(QWidget):
             return
 
         from modules.core.db import LibraryDB
+        from modules.core.utils import is_path_skipped
+        from pathlib import Path as _Path
         db = LibraryDB(self._lib_config.db_file)
 
-        # Preview: count what would be deleted by checking full_path parent folder
-        import json
-        from pathlib import Path as _Path
-        lower = {f.lower() for f in folders}
+        # Preview: count what would be deleted by checking full_path parent dir
         all_items = db.get_all_items()
         matching: dict[str, int] = {}
         for item in all_items.values():
             fp = item.get('full_path', '')
             if fp:
-                folder_name = _Path(fp).parent.name
-                if folder_name.lower() in lower:
-                    matching[folder_name] = matching.get(folder_name, 0) + 1
+                genre_dir = _Path(fp).parent
+                if is_path_skipped(genre_dir, folders):
+                    key = genre_dir.name
+                    matching[key] = matching.get(key, 0) + 1
 
         if not matching:
             QMessageBox.information(self, 'Nothing to do',
@@ -644,8 +645,7 @@ class SettingsPage(QWidget):
         start = str(self._lib_config.destination_base) if self._lib_config else ''
         path = QFileDialog.getExistingDirectory(self, 'Select Folder to Exclude', start)
         if path:
-            name = Path(path).name
-            self._add_skip_if_new(name)
+            self._add_skip_if_new(path)
 
     def _add_skip_name(self):
         from PyQt6.QtWidgets import QInputDialog
