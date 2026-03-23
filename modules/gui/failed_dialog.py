@@ -595,6 +595,11 @@ class FailedItemsDialog(QDialog):
             from modules.core.db import LibraryDB
             db = LibraryDB(Path(self._lib_config.metadata_file))
             for key, item in self._pending_results.items():
+                # Preserve full_path from existing DB entry if new result doesn't have it
+                if not item.get('full_path'):
+                    existing = db.get_item(key) or {}
+                    if existing.get('full_path'):
+                        item['full_path'] = existing['full_path']
                 db.set_item(key, item)
             saved_keys = set(self._pending_results.keys())
             count = len(saved_keys)

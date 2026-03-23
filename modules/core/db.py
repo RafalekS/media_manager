@@ -273,17 +273,35 @@ class LibraryDB:
         return {row['genre']: row['cnt'] for row in rows}
 
     def delete_items_by_genres(self, genres: list) -> int:
-        """Delete metadata_items whose genre matches any in the list (case-insensitive).
+        """Delete metadata_items whose full_path parent folder matches any excluded name.
+        Falls back to checking the genre column if full_path is absent.
         Returns number of rows deleted."""
         if not genres:
             return 0
-        lower = [g.lower() for g in genres]
+        lower = {g.lower() for g in genres}
         with self._conn() as conn:
             rows = conn.execute(
-                'SELECT original_name, genre FROM metadata_items'
+                'SELECT original_name, data, genre FROM metadata_items'
             ).fetchall()
-            to_delete = [r['original_name'] for r in rows
-                         if (r['genre'] or '').lower() in lower]
+            to_delete = []
+            for r in rows:
+                matched = False
+                # Primary: check full_path parent folder name in JSON data
+                try:
+                    data = json.loads(r['data'])
+                    fp = data.get('full_path', '')
+                    if fp:
+                        from pathlib import Path as _Path
+                        folder_name = _Path(fp).parent.name
+                        if folder_name.lower() in lower:
+                            matched = True
+                except Exception:
+                    pass
+                # Fallback: genre column (IGDB genre, less reliable for folder names)
+                if not matched and (r['genre'] or '').lower() in lower:
+                    matched = True
+                if matched:
+                    to_delete.append(r['original_name'])
             if to_delete:
                 conn.executemany(
                     'DELETE FROM metadata_items WHERE original_name = ?',

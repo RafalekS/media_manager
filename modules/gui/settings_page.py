@@ -561,15 +561,23 @@ class SettingsPage(QWidget):
         from modules.core.db import LibraryDB
         db = LibraryDB(self._lib_config.db_file)
 
-        # Preview: count what would be deleted
-        from modules.core.db import LibraryDB
+        # Preview: count what would be deleted by checking full_path parent folder
+        import json
+        from pathlib import Path as _Path
         lower = {f.lower() for f in folders}
-        genres_in_db = db.genre_counts()
-        matching = {g: cnt for g, cnt in genres_in_db.items() if g.lower() in lower}
+        all_items = db.get_all_items()
+        matching: dict[str, int] = {}
+        for item in all_items.values():
+            fp = item.get('full_path', '')
+            if fp:
+                folder_name = _Path(fp).parent.name
+                if folder_name.lower() in lower:
+                    matching[folder_name] = matching.get(folder_name, 0) + 1
 
         if not matching:
             QMessageBox.information(self, 'Nothing to do',
-                'No DB entries found matching the excluded folders.')
+                'No DB entries found matching the excluded folders.\n\n'
+                'Note: entries must have a full_path recorded to be detected.')
             return
 
         preview = '\n'.join(f'  {g}: {cnt} item(s)' for g, cnt in sorted(matching.items()))

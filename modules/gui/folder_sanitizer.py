@@ -264,9 +264,8 @@ class FolderSanitizerDialog(QDialog):
             genre_item.setFlags(genre_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_GENRE, genre_item)
 
-            # Full path of parent directory (read-only)
-            parent_path = str(Path(row_data['folder_path']).parent)
-            path_item = QTableWidgetItem(parent_path)
+            # Full path of the item folder (read-only)
+            path_item = QTableWidgetItem(row_data['folder_path'])
             path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_PATH, path_item)
 
@@ -448,7 +447,8 @@ class FolderSanitizerDialog(QDialog):
             # Update DB if the item exists there
             if db.item_exists(row_data['orig']):
                 try:
-                    db.rename_item(row_data['orig'], new_name)
+                    db.rename_item(row_data['orig'], new_name,
+                                   updates={'full_path': str(new_path)})
                 except Exception as e:
                     # Disk rename done — DB failed; try to undo
                     try:
