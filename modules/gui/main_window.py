@@ -9,6 +9,7 @@ Layout (matches game_processor):
 Nav: Dashboard | Scan | Metadata | Failed Items | Organize | Generate HTML | Library | Settings
 """
 
+import math
 import os
 import sys
 import webbrowser
@@ -175,17 +176,18 @@ class MainWindow(QMainWindow):
         self._main_splitter = QSplitter(Qt.Orientation.Vertical)
         root.addWidget(self._main_splitter)
 
-        top = QWidget()
-        top_lay = QHBoxLayout(top)
-        top_lay.setContentsMargins(0, 0, 0, 0)
-        top_lay.setSpacing(0)
-        self._main_splitter.addWidget(top)
+        self._nav_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._nav_splitter.setChildrenCollapsible(False)
+        self._main_splitter.addWidget(self._nav_splitter)
 
-        top_lay.addWidget(self._build_sidebar())
+        self._nav_splitter.addWidget(self._build_sidebar())
 
         self._stack = QStackedWidget()
         self._stack.setObjectName('content_widget')
-        top_lay.addWidget(self._stack, 1)
+        self._nav_splitter.addWidget(self._stack)
+        self._nav_splitter.setSizes([210, 800])
+        self._nav_splitter.setStretchFactor(0, 0)
+        self._nav_splitter.setStretchFactor(1, 1)
 
         # Shared log panel at bottom (hidden on non-operational tabs)
         self._log = LogWidget()
@@ -215,6 +217,7 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(page)
 
         self._ui_state.restore_splitter(self._main_splitter, 'main_splitter')
+        self._ui_state.restore_splitter(self._nav_splitter, 'nav_splitter')
 
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
@@ -223,7 +226,7 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
         sidebar.setObjectName('sidebar')
-        sidebar.setFixedWidth(210)
+        sidebar.setMinimumWidth(140)
         sb = QVBoxLayout(sidebar)
         sb.setContentsMargins(0, 0, 0, 0)
         sb.setSpacing(0)
@@ -369,11 +372,13 @@ class MainWindow(QMainWindow):
         genres_lay = QVBoxLayout(self._genres_grp)
 
         self._genres_table = QTableWidget()
-        self._genres_table.setColumnCount(2)
-        self._genres_table.setHorizontalHeaderLabels(['Genre', 'Games'])
+        self._genres_table.setColumnCount(6)
+        self._genres_table.setHorizontalHeaderLabels(
+            ['Genre', '#', 'Genre', '#', 'Genre', '#']
+        )
         hdr = self._genres_table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        hdr.setSectionsMovable(True)
+        hdr.setSectionsMovable(False)  # fixed layout for 3-column display
         self._genres_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._genres_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._genres_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -826,7 +831,6 @@ class MainWindow(QMainWindow):
         if not has_file:
             return
 
-        # Load genre list from file; fall back to empty if missing
         genres = []
         if Path(genre_file).exists():
             try:
@@ -836,27 +840,47 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        self._populate_genres_table({g: genre_counts.get(g, 0) for g in genres})
+
+    def _genres_from_table(self) -> dict:
+        """Return {genre_name: count} from all 3 column groups."""
+        result = {}
+        for r in range(self._genres_table.rowCount()):
+            for gc in (0, 2, 4):
+                g = self._genres_table.item(r, gc)
+                c = self._genres_table.item(r, gc + 1)
+                if g and g.text():
+                    try:
+                        result[g.text()] = int(c.text()) if c else 0
+                    except ValueError:
+                        result[g.text()] = 0
+        return result
+
+    def _populate_genres_table(self, genre_counts: dict):
+        """Fill genres table in 3-column layout (Genre/#/Genre/#/Genre/#)."""
+        genres = sorted(genre_counts)
+        n = len(genres)
+        rows = math.ceil(n / 3) if n > 0 else 0
         self._genres_table.setSortingEnabled(False)
         self._genres_table.setRowCount(0)
-        self._genres_table.setRowCount(len(genres))
-        for row, name in enumerate(genres):
+        self._genres_table.setRowCount(rows)
+        for i, name in enumerate(genres):
+            grp = i // rows if rows > 0 else 0
+            row = i % rows if rows > 0 else i
+            gc = grp * 2
             g_item = CITableWidgetItem(name)
             c_item = CITableWidgetItem(str(genre_counts.get(name, 0)))
             c_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._genres_table.setItem(row, 0, g_item)
-            self._genres_table.setItem(row, 1, c_item)
-        self._genres_table.setSortingEnabled(True)
+            self._genres_table.setItem(row, gc, g_item)
+            self._genres_table.setItem(row, gc + 1, c_item)
+        self._genres_table.setSortingEnabled(False)  # sorting disabled; layout is positional
 
     def _save_genres_to_file(self):
         import json
         genre_file = self._lib_config.genre_file if self._lib_config else None
         if not genre_file:
             return
-        genres = sorted(
-            self._genres_table.item(r, 0).text()
-            for r in range(self._genres_table.rowCount())
-            if self._genres_table.item(r, 0)
-        )
+        genres = sorted(self._genres_from_table())
         data = {g: g for g in genres}
         try:
             Path(genre_file).parent.mkdir(parents=True, exist_ok=True)
@@ -870,48 +894,55 @@ class MainWindow(QMainWindow):
         if not ok or not name.strip():
             return
         name = name.strip()
-        existing = [
-            self._genres_table.item(r, 0).text()
-            for r in range(self._genres_table.rowCount())
-            if self._genres_table.item(r, 0)
-        ]
-        if name in existing:
+        counts = self._genres_from_table()
+        if name in counts:
             QMessageBox.warning(self, 'Duplicate', f'"{name}" already exists.')
             return
-        row = self._genres_table.rowCount()
-        self._genres_table.insertRow(row)
-        self._genres_table.setItem(row, 0, CITableWidgetItem(name))
-        c_item = CITableWidgetItem('0')
-        c_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._genres_table.setItem(row, 1, c_item)
+        counts[name] = 0
+        self._populate_genres_table(counts)
         self._save_genres_to_file()
 
     def _genre_rename(self):
-        row = self._genres_table.currentRow()
-        if row < 0:
+        item = self._genres_table.currentItem()
+        if not item or not item.text():
             QMessageBox.information(self, 'Rename', 'Select a genre first.')
             return
-        item = self._genres_table.item(row, 0)
-        if not item:
+        col = self._genres_table.currentColumn()
+        row = self._genres_table.currentRow()
+        gc = (col // 2) * 2
+        g_item = self._genres_table.item(row, gc)
+        if not g_item or not g_item.text():
+            QMessageBox.information(self, 'Rename', 'Select a genre first.')
             return
-        old = item.text()
+        old = g_item.text()
         name, ok = QInputDialog.getText(self, 'Rename Genre', 'New name:', text=old)
         if not ok or not name.strip() or name.strip() == old:
             return
-        item.setText(name.strip())
+        counts = self._genres_from_table()
+        counts[name.strip()] = counts.pop(old, 0)
+        self._populate_genres_table(counts)
         self._save_genres_to_file()
 
     def _genre_delete(self):
-        row = self._genres_table.currentRow()
-        if row < 0:
+        item = self._genres_table.currentItem()
+        if not item or not item.text():
             QMessageBox.information(self, 'Delete', 'Select a genre first.')
             return
-        name = self._genres_table.item(row, 0).text() if self._genres_table.item(row, 0) else ''
+        col = self._genres_table.currentColumn()
+        row = self._genres_table.currentRow()
+        gc = (col // 2) * 2
+        g_item = self._genres_table.item(row, gc)
+        if not g_item or not g_item.text():
+            QMessageBox.information(self, 'Delete', 'Select a genre first.')
+            return
+        name = g_item.text()
         if QMessageBox.question(
             self, 'Delete Genre', f'Delete "{name}"?',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
-            self._genres_table.removeRow(row)
+            counts = self._genres_from_table()
+            counts.pop(name, None)
+            self._populate_genres_table(counts)
             self._save_genres_to_file()
 
     # ── Workers ───────────────────────────────────────────────────────
@@ -1076,4 +1107,5 @@ class MainWindow(QMainWindow):
 
         self._ui_state.save_window(self)
         self._ui_state.save_splitter(self._main_splitter, 'main_splitter')
+        self._ui_state.save_splitter(self._nav_splitter, 'nav_splitter')
         super().closeEvent(event)
