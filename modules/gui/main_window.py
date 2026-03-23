@@ -668,6 +668,25 @@ class MainWindow(QMainWindow):
         )
         lay.addWidget(html_grp)
 
+        # ── Rebuild Missing Locations ─────────────────────────────────
+        loc_grp = QGroupBox('Rebuild Missing Locations')
+        loc_lay = QVBoxLayout(loc_grp)
+        loc_desc = QLabel(
+            'Scans the destination folder and fills in the location (full_path) for any '
+            'DB entries that are missing it. Required for the Excluded Folders cleanup to work.'
+        )
+        loc_desc.setProperty('role', 'muted')
+        loc_desc.setWordWrap(True)
+        loc_lay.addWidget(loc_desc)
+        loc_row = QHBoxLayout()
+        self._loc_btn = QPushButton('Rebuild Locations')
+        self._loc_btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        self._loc_btn.clicked.connect(self._rebuild_locations)
+        loc_row.addWidget(self._loc_btn)
+        loc_row.addStretch()
+        loc_lay.addLayout(loc_row)
+        lay.addWidget(loc_grp)
+
         # ── Sanitize Folder Names ─────────────────────────────────────
         san_grp = QGroupBox('Sanitize Folder Names')
         san_lay = QVBoxLayout(san_grp)
@@ -957,6 +976,43 @@ class MainWindow(QMainWindow):
         self._start_worker(
             HTMLWorker(self._lib_config, self._plugin, self._log.stream),
             self._html_run_btn, self._html_stop_btn, self._html_progress,
+        )
+
+    def _rebuild_locations(self):
+        from pathlib import Path
+        from modules.core.db import LibraryDB
+
+        dest = self._lib_config.destination_base
+        skip = {s.lower() for s in self._lib_config.skip_folders + ['new']}
+
+        # Build original_name -> full_path from disk
+        path_map = {}
+        try:
+            for genre_dir in dest.iterdir():
+                if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
+                    continue
+                for item_dir in genre_dir.iterdir():
+                    if item_dir.is_dir():
+                        path_map[item_dir.name] = str(item_dir)
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to scan destination:\n{e}')
+            return
+
+        db = LibraryDB(self._lib_config.db_file)
+        all_items = db.get_all_items()
+        updated = 0
+        for orig_name, item in all_items.items():
+            if not item.get('full_path'):
+                fp = path_map.get(orig_name, '')
+                if fp:
+                    item['full_path'] = fp
+                    db.set_item(orig_name, item)
+                    updated += 1
+
+        QMessageBox.information(
+            self, 'Done',
+            f'Updated location for {updated} entries.\n'
+            f'({len(all_items) - updated} already had a location.)'
         )
 
     def _open_sanitizer(self):
