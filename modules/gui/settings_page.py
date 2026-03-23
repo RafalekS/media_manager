@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QSpinBox, QDoubleSpinBox,
     QPushButton, QGroupBox, QScrollArea, QMessageBox,
-    QFileDialog, QCheckBox, QFrame, QComboBox,
+    QFileDialog, QCheckBox, QFrame, QComboBox, QListWidget,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
@@ -212,14 +212,39 @@ class SettingsPage(QWidget):
 
         # ── Excluded Folders ─────────────────────────────────────────
         excl_grp = QGroupBox('Excluded Folders')
-        excl_form = QFormLayout(excl_grp)
-        self._skip_folders = QLineEdit()
-        self._skip_folders.setPlaceholderText('Comma-separated, e.g. New, Extras, Old, Backup')
-        self._skip_folders.setToolTip(
-            'Folder names to exclude from all scans (genre level and item level).\n'
-            'Case-insensitive. "New" is always excluded automatically.'
+        excl_lay = QVBoxLayout(excl_grp)
+
+        excl_desc = QLabel(
+            'Folders excluded from all scans (genre level and item level). '
+            '"New" is always excluded automatically.'
         )
-        excl_form.addRow('Skip Folders:', self._skip_folders)
+        excl_desc.setProperty('role', 'muted')
+        excl_desc.setWordWrap(True)
+        excl_lay.addWidget(excl_desc)
+
+        self._skip_list = QListWidget()
+        self._skip_list.setMaximumHeight(120)
+        self._skip_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        excl_lay.addWidget(self._skip_list)
+
+        excl_btn_row = QHBoxLayout()
+        btn_add_folder = QPushButton('Add Folder')
+        btn_add_folder.setObjectName('btn_secondary')
+        btn_add_folder.clicked.connect(self._add_skip_folder)
+        excl_btn_row.addWidget(btn_add_folder)
+
+        btn_add_name = QPushButton('Add by Name')
+        btn_add_name.setObjectName('btn_secondary')
+        btn_add_name.clicked.connect(self._add_skip_name)
+        excl_btn_row.addWidget(btn_add_name)
+
+        btn_remove = QPushButton('Remove Selected')
+        btn_remove.setObjectName('btn_danger')
+        btn_remove.clicked.connect(self._remove_skip_folders)
+        excl_btn_row.addWidget(btn_remove)
+
+        excl_btn_row.addStretch()
+        excl_lay.addLayout(excl_btn_row)
         self._layout.addWidget(excl_grp)
 
         # ── Folder Sanitizer ─────────────────────────────────────────
@@ -304,8 +329,9 @@ class SettingsPage(QWidget):
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
         self._rate_limit.setValue(lib_config.data.get('rate_limit', 0.25))
 
-        skip = lib_config.data.get('skip_folders', [])
-        self._skip_folders.setText(', '.join(skip))
+        self._skip_list.clear()
+        for folder in lib_config.data.get('skip_folders', []):
+            self._skip_list.addItem(folder)
 
         from modules.gui.folder_sanitizer import _DEFAULT_NOISE_WORDS
         noise = lib_config.data.get('sanitize_noise_words', _DEFAULT_NOISE_WORDS)
@@ -495,7 +521,8 @@ class SettingsPage(QWidget):
         data['supplement_providers'] = supplements
 
         data['skip_folders'] = [
-            w.strip() for w in self._skip_folders.text().split(',') if w.strip()
+            self._skip_list.item(i).text()
+            for i in range(self._skip_list.count())
         ]
 
         data['sanitize_noise_words'] = [
@@ -511,6 +538,30 @@ class SettingsPage(QWidget):
             return
 
         QMessageBox.information(self, 'Saved', 'Settings saved.')
+
+    # ── Skip folder helpers ───────────────────────────────────────────
+    def _add_skip_folder(self):
+        start = str(self._lib_config.destination_base) if self._lib_config else ''
+        path = QFileDialog.getExistingDirectory(self, 'Select Folder to Exclude', start)
+        if path:
+            name = Path(path).name
+            self._add_skip_if_new(name)
+
+    def _add_skip_name(self):
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, 'Add Excluded Folder', 'Folder name:')
+        if ok and name.strip():
+            self._add_skip_if_new(name.strip())
+
+    def _add_skip_if_new(self, name: str):
+        existing = [self._skip_list.item(i).text().lower()
+                    for i in range(self._skip_list.count())]
+        if name.lower() not in existing:
+            self._skip_list.addItem(name)
+
+    def _remove_skip_folders(self):
+        for item in self._skip_list.selectedItems():
+            self._skip_list.takeItem(self._skip_list.row(item))
 
     # ──────────────────────────────────────────────────────────────────
     def _browse_folder(self, edit: QLineEdit):
