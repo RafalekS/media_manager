@@ -243,10 +243,19 @@ class SettingsPage(QWidget):
         btn_remove.clicked.connect(self._remove_skip_folders)
         excl_btn_row.addWidget(btn_remove)
 
+        btn_rebuild = QPushButton('Rebuild Missing Locations')
+        btn_rebuild.setObjectName('btn_secondary')
+        btn_rebuild.setToolTip(
+            'Scans the destination folder and fills in the location for DB entries missing it.\n'
+            'Run this before removing excluded entries.'
+        )
+        btn_rebuild.clicked.connect(self._rebuild_locations)
+        excl_btn_row.addWidget(btn_rebuild)
+
         btn_cleanup = QPushButton('Remove Excluded Entries from DB')
         btn_cleanup.setObjectName('btn_danger')
         btn_cleanup.setToolTip(
-            'Deletes metadata DB entries whose genre folder matches the exclusion list.\n'
+            'Deletes metadata DB entries whose folder matches the exclusion list.\n'
             'All other entries are untouched.'
         )
         btn_cleanup.clicked.connect(self._cleanup_excluded_from_db)
@@ -549,6 +558,43 @@ class SettingsPage(QWidget):
         QMessageBox.information(self, 'Saved', 'Settings saved.')
 
     # ── Skip folder helpers ───────────────────────────────────────────
+    def _rebuild_locations(self):
+        if not self._lib_config:
+            return
+        from modules.core.db import LibraryDB
+
+        dest = self._lib_config.destination_base
+        skip = {s.lower() for s in self._lib_config.data.get('skip_folders', []) + ['new']}
+
+        path_map = {}
+        try:
+            for genre_dir in dest.iterdir():
+                if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
+                    continue
+                for item_dir in genre_dir.iterdir():
+                    if item_dir.is_dir():
+                        path_map[item_dir.name] = str(item_dir)
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to scan destination:\n{e}')
+            return
+
+        db = LibraryDB(self._lib_config.db_file)
+        all_items = db.get_all_items()
+        updated = 0
+        for orig_name, item in all_items.items():
+            if not item.get('full_path'):
+                fp = path_map.get(orig_name, '')
+                if fp:
+                    item['full_path'] = fp
+                    db.set_item(orig_name, item)
+                    updated += 1
+
+        QMessageBox.information(
+            self, 'Done',
+            f'Updated location for {updated} entries.\n'
+            f'({len(all_items) - updated} already had a location.)'
+        )
+
     def _cleanup_excluded_from_db(self):
         if not self._lib_config:
             return
