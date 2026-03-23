@@ -94,7 +94,7 @@ def scan_organized_items(destination_base: str, skip_folders: list | None = None
         items = []
         try:
             for item_dir in genre_dir.iterdir():
-                if item_dir.is_dir():
+                if item_dir.is_dir() and item_dir.name.lower() not in skip:
                     items.append({
                         'name': item_dir.name,
                         'folder_path': str(item_dir),

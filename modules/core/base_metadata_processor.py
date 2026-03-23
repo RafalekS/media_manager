@@ -247,7 +247,10 @@ def _build_full_collection_scan(lib_config, plugin) -> list:
     for genre_dir in sorted(dest_path.iterdir()):
         if not genre_dir.is_dir() or genre_dir.name.lower() in skip:
             continue
-        items.extend(_scan_target(str(genre_dir), plugin.clean_name, scan_mode, extensions))
+        items.extend(
+            i for i in _scan_target(str(genre_dir), plugin.clean_name, scan_mode, extensions)
+            if i['name'].lower() not in skip
+        )
 
     print(f'[Metadata] Full collection: found {len(items)} items in {dest}')
     return items

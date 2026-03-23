@@ -210,6 +210,18 @@ class SettingsPage(QWidget):
 
         self._layout.addWidget(rl_grp)
 
+        # ── Excluded Folders ─────────────────────────────────────────
+        excl_grp = QGroupBox('Excluded Folders')
+        excl_form = QFormLayout(excl_grp)
+        self._skip_folders = QLineEdit()
+        self._skip_folders.setPlaceholderText('Comma-separated, e.g. New, Extras, Old, Backup')
+        self._skip_folders.setToolTip(
+            'Folder names to exclude from all scans (genre level and item level).\n'
+            'Case-insensitive. "New" is always excluded automatically.'
+        )
+        excl_form.addRow('Skip Folders:', self._skip_folders)
+        self._layout.addWidget(excl_grp)
+
         # ── Folder Sanitizer ─────────────────────────────────────────
         san_grp = QGroupBox('Folder Sanitizer')
         san_form = QFormLayout(san_grp)
@@ -291,6 +303,9 @@ class SettingsPage(QWidget):
         self._html_fname.setText(lib_config.data.get('html_filename', ''))
         self._items_per_page.setValue(lib_config.data.get('items_per_page', 50))
         self._rate_limit.setValue(lib_config.data.get('rate_limit', 0.25))
+
+        skip = lib_config.data.get('skip_folders', [])
+        self._skip_folders.setText(', '.join(skip))
 
         from modules.gui.folder_sanitizer import _DEFAULT_NOISE_WORDS
         noise = lib_config.data.get('sanitize_noise_words', _DEFAULT_NOISE_WORDS)
@@ -478,6 +493,10 @@ class SettingsPage(QWidget):
                 data['api'][key] = edit.text().strip()
 
         data['supplement_providers'] = supplements
+
+        data['skip_folders'] = [
+            w.strip() for w in self._skip_folders.text().split(',') if w.strip()
+        ]
 
         data['sanitize_noise_words'] = [
             w.strip() for w in self._noise_words.text().split(',') if w.strip()
