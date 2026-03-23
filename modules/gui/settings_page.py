@@ -243,6 +243,15 @@ class SettingsPage(QWidget):
         btn_remove.clicked.connect(self._remove_skip_folders)
         excl_btn_row.addWidget(btn_remove)
 
+        btn_cleanup = QPushButton('Remove Excluded Entries from DB')
+        btn_cleanup.setObjectName('btn_danger')
+        btn_cleanup.setToolTip(
+            'Deletes metadata DB entries whose genre folder matches the exclusion list.\n'
+            'All other entries are untouched.'
+        )
+        btn_cleanup.clicked.connect(self._cleanup_excluded_from_db)
+        excl_btn_row.addWidget(btn_cleanup)
+
         excl_btn_row.addStretch()
         excl_lay.addLayout(excl_btn_row)
         self._layout.addWidget(excl_grp)
@@ -540,6 +549,43 @@ class SettingsPage(QWidget):
         QMessageBox.information(self, 'Saved', 'Settings saved.')
 
     # ── Skip folder helpers ───────────────────────────────────────────
+    def _cleanup_excluded_from_db(self):
+        if not self._lib_config:
+            return
+        folders = [self._skip_list.item(i).text()
+                   for i in range(self._skip_list.count())]
+        if not folders:
+            QMessageBox.information(self, 'Nothing to do', 'No excluded folders configured.')
+            return
+
+        from modules.core.db import LibraryDB
+        db = LibraryDB(self._lib_config.db_file)
+
+        # Preview: count what would be deleted
+        from modules.core.db import LibraryDB
+        lower = {f.lower() for f in folders}
+        genres_in_db = db.genre_counts()
+        matching = {g: cnt for g, cnt in genres_in_db.items() if g.lower() in lower}
+
+        if not matching:
+            QMessageBox.information(self, 'Nothing to do',
+                'No DB entries found matching the excluded folders.')
+            return
+
+        preview = '\n'.join(f'  {g}: {cnt} item(s)' for g, cnt in sorted(matching.items()))
+        total = sum(matching.values())
+        ans = QMessageBox.question(
+            self, 'Confirm DB Cleanup',
+            f'Remove {total} entries from the following excluded folders?\n\n{preview}\n\n'
+            'All other entries are untouched. This cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+
+        deleted = db.delete_items_by_genres(folders)
+        QMessageBox.information(self, 'Done', f'Removed {deleted} entries from the DB.')
+
     def _add_skip_folder(self):
         start = str(self._lib_config.destination_base) if self._lib_config else ''
         path = QFileDialog.getExistingDirectory(self, 'Select Folder to Exclude', start)

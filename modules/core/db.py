@@ -272,6 +272,25 @@ class LibraryDB:
             ).fetchall()
         return {row['genre']: row['cnt'] for row in rows}
 
+    def delete_items_by_genres(self, genres: list) -> int:
+        """Delete metadata_items whose genre matches any in the list (case-insensitive).
+        Returns number of rows deleted."""
+        if not genres:
+            return 0
+        lower = [g.lower() for g in genres]
+        with self._conn() as conn:
+            rows = conn.execute(
+                'SELECT original_name, genre FROM metadata_items'
+            ).fetchall()
+            to_delete = [r['original_name'] for r in rows
+                         if (r['genre'] or '').lower() in lower]
+            if to_delete:
+                conn.executemany(
+                    'DELETE FROM metadata_items WHERE original_name = ?',
+                    [(k,) for k in to_delete],
+                )
+        return len(to_delete)
+
     # ── Wipe ─────────────────────────────────────────────────────────
 
     def wipe(self):
