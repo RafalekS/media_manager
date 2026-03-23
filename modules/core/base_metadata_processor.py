@@ -236,6 +236,7 @@ def _build_full_collection_scan(lib_config, plugin) -> list:
     skip_list = list(lib_config.skip_folders) + ['new']
     scan_mode  = lib_config.data.get('scan_mode', 'folders')
     extensions = [e.lower() for e in lib_config.data.get('file_extensions', [])]
+    scan_depth = lib_config.data.get('scan_depth', 1)
 
     items = []
     dest_path = Path(dest)
@@ -247,7 +248,7 @@ def _build_full_collection_scan(lib_config, plugin) -> list:
         if not genre_dir.is_dir() or is_path_skipped(genre_dir, skip_list):
             continue
         items.extend(
-            i for i in _scan_target(str(genre_dir), plugin.clean_name, scan_mode, extensions)
+            i for i in _scan_target(str(genre_dir), plugin.clean_name, scan_mode, extensions, depth=scan_depth)
             if not is_path_skipped(Path(i['folder_path']), skip_list)
         )
 
