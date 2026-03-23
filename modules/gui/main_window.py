@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 )
 
 from modules.gui.log_widget import LogWidget
+from modules.gui.table_utils import CITableWidgetItem
 from modules.gui.theme_manager import THEME_NAMES, build_stylesheet, _THEMES, get_theme_names
 from modules.gui.theme_editor import ThemeEditor
 from modules.gui.ui_state import UIState
@@ -839,8 +840,8 @@ class MainWindow(QMainWindow):
         self._genres_table.setRowCount(0)
         self._genres_table.setRowCount(len(genres))
         for row, name in enumerate(genres):
-            g_item = QTableWidgetItem(name)
-            c_item = QTableWidgetItem(str(genre_counts.get(name, 0)))
+            g_item = CITableWidgetItem(name)
+            c_item = CITableWidgetItem(str(genre_counts.get(name, 0)))
             c_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._genres_table.setItem(row, 0, g_item)
             self._genres_table.setItem(row, 1, c_item)
@@ -879,8 +880,8 @@ class MainWindow(QMainWindow):
             return
         row = self._genres_table.rowCount()
         self._genres_table.insertRow(row)
-        self._genres_table.setItem(row, 0, QTableWidgetItem(name))
-        c_item = QTableWidgetItem('0')
+        self._genres_table.setItem(row, 0, CITableWidgetItem(name))
+        c_item = CITableWidgetItem('0')
         c_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         self._genres_table.setItem(row, 1, c_item)
         self._save_genres_to_file()

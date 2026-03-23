@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from modules.gui.ui_state import UIState
+from modules.gui.table_utils import CITableWidgetItem
 from modules.core.config_manager import GlobalConfig
 
 # Default noise words (fallback if not set in library config)
@@ -254,30 +255,30 @@ class FolderSanitizerDialog(QDialog):
             self._table.insertRow(r)
 
             # Checkbox col
-            chk_item = QTableWidgetItem()
+            chk_item = CITableWidgetItem()
             chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
             chk_item.setCheckState(Qt.CheckState.Unchecked)
             self._table.setItem(r, _COL_CHECK, chk_item)
 
             # Genre (read-only)
-            genre_item = QTableWidgetItem(row_data['genre'])
+            genre_item = CITableWidgetItem(row_data['genre'])
             genre_item.setFlags(genre_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_GENRE, genre_item)
 
             # Full path of the item folder (read-only)
-            path_item = QTableWidgetItem(row_data['folder_path'])
+            path_item = CITableWidgetItem(row_data['folder_path'])
             path_item.setFlags(path_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_PATH, path_item)
 
             # Original (read-only)
-            orig_item = QTableWidgetItem(row_data['orig'])
+            orig_item = CITableWidgetItem(row_data['orig'])
             orig_item.setFlags(orig_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             # Store index into self._rows for later lookup
             orig_item.setData(Qt.ItemDataRole.UserRole, self._rows.index(row_data))
             self._table.setItem(r, _COL_ORIG, orig_item)
 
             # Cleaned (editable)
-            cleaned_item = QTableWidgetItem(row_data['cleaned'])
+            cleaned_item = CITableWidgetItem(row_data['cleaned'])
             self._table.setItem(r, _COL_CLEANED, cleaned_item)
 
             visible_rows += 1

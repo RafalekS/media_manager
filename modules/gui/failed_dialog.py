@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QSplitter, QWidget, QApplication, QMenu,
     QListWidget, QListWidgetItem,
 )
+from modules.gui.table_utils import CITableWidgetItem
 
 
 class _PickResultDialog(QDialog):
@@ -269,7 +270,7 @@ class FailedItemsDialog(QDialog):
         self._table.setRowCount(len(entries))
         for row, (clean_name, info) in enumerate(entries):
             # Checkbox col
-            chk = QTableWidgetItem()
+            chk = CITableWidgetItem()
             chk.setCheckState(Qt.CheckState.Unchecked)
             chk.setData(Qt.ItemDataRole.UserRole, {'key': clean_name, **info})
             chk.setFlags(chk.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -277,25 +278,25 @@ class FailedItemsDialog(QDialog):
 
             # Folder name (read-only)
             folder = info.get('original_name', clean_name)
-            fi = QTableWidgetItem(folder)
+            fi = CITableWidgetItem(folder)
             fi.setFlags(fi.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(row, self._COL_FOLDER, fi)
 
             # Clean name (editable — user can change before retrying)
             fresh_clean = self._plugin.clean_name(folder) if folder else clean_name
-            ci = QTableWidgetItem(fresh_clean)
+            ci = CITableWidgetItem(fresh_clean)
             ci.setToolTip('Double-click to edit the search name before retrying')
             self._table.setItem(row, self._COL_CLEAN, ci)
 
             # Location — full_path if stored, else blank
             full_path = info.get('full_path', '')
-            li = QTableWidgetItem(full_path)
+            li = CITableWidgetItem(full_path)
             li.setFlags(li.flags() & ~Qt.ItemFlag.ItemIsEditable)
             li.setToolTip(full_path)
             self._table.setItem(row, self._COL_LOCATION, li)
 
             # Status
-            si = QTableWidgetItem('Pending')
+            si = CITableWidgetItem('Pending')
             si.setFlags(si.flags() & ~Qt.ItemFlag.ItemIsEditable)
             si.setForeground(Qt.GlobalColor.gray)
             self._table.setItem(row, self._COL_STATUS, si)
