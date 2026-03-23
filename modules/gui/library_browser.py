@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 _KEY_ROLE   = Qt.ItemDataRole.UserRole       # stores metadata dict key on col-0 cell
 _URL_ROLE   = Qt.ItemDataRole.UserRole + 1   # stores raw URL on cover cells
+_SORT_ROLE  = Qt.ItemDataRole.UserRole + 2   # lowercase sort key for case-insensitive sort
 
 # Keys that are always read-only in the edit dialog
 _DIALOG_READONLY = frozenset({'provider_source'})
@@ -398,6 +399,7 @@ class LibraryBrowser(QWidget):
 
         # Table
         self._model = QStandardItemModel()
+        self._model.setSortRole(_SORT_ROLE)
         self._model.itemChanged.connect(self._on_item_changed)
 
         self._table = QTableView()
@@ -564,6 +566,7 @@ class LibraryBrowser(QWidget):
             for col_idx, key in enumerate(col_keys):
                 val  = item.get(key, '') or ''
                 cell = QStandardItem(str(val))
+                cell.setData(str(val).lower(), _SORT_ROLE)
                 if col_idx in readonly_cols:
                     cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 if col_idx == 0:
