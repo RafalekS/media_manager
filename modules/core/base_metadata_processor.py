@@ -51,10 +51,12 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
     for sup in supplements:
         sup.authenticate()
 
-    total        = len(scan_list)
-    done         = 0
-    skipped      = 0
-    save_every   = 25  # save progress to disk every N items
+    total          = len(scan_list)
+    done           = 0
+    skipped        = 0
+    newly_found    = 0
+    newly_failed   = 0
+    save_every     = 25  # save progress to disk every N items
 
     for entry in scan_list:
         if stop_fn and stop_fn():
@@ -90,7 +92,8 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
             if plugin.is_update(original_name):
                 result['is_update'] = True
             items[clean_name] = result
-            print(f'       Found: {result.get("name", "")}')
+            newly_found += 1
+            print(f'       ✓ Found: {result.get("name", "")}  [{result.get("genre", "")}]')
         else:
             items[clean_name] = {
                 'original_name': original_name,
@@ -101,7 +104,8 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
                 'genre':         '',
                 'display_name':  clean_name,
             }
-            print(f'       Not found.')
+            newly_failed += 1
+            print(f'       ✗ Not found.')
 
         # Periodic save — prevents losing everything on crash/stop
         if done % save_every == 0:
@@ -113,7 +117,14 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
 
     save_metadata_progress(progress, meta_file)
     found_total = sum(1 for v in items.values() if v.get('found') or v.get('igdb_found'))
-    print(f'\n[Metadata] Done. {found_total}/{len(items)} items with metadata.')
+    print(f'\n[Metadata] ── Run summary ────────────────────')
+    print(f'  Looked up this run : {done}')
+    print(f'  ✓ Newly found      : {newly_found}')
+    if newly_failed:
+        print(f'  ✗ Not found        : {newly_failed}')
+    print(f'  Already matched    : {skipped} (skipped)')
+    print(f'  Total with metadata: {found_total}/{len(items)}')
+    print(f'[Metadata] ──────────────────────────────────')
 
 
 def _build_provider(name: str, api_cfg: dict):

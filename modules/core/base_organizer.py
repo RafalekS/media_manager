@@ -310,6 +310,13 @@ class BaseOrganizer:
             with open(bat_file, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
             print(f'[OK] .bat written to: {bat_file}')
+            if items:
+                print(f'\n── Planned moves ({len(items)}) ────────────────────')
+                for item in items:
+                    action = 'RENAME' if item.get('is_rename') else 'MOVE'
+                    print(f'  [{action}] {item.get("original_name", "")}')
+                    print(f'         → {item["target_path"]}')
+                print('──────────────────────────────────────────')
             return True
         except Exception as e:
             print(f'[ERROR] Failed to write .bat: {e}')
