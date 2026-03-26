@@ -72,6 +72,9 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
         existing = items.get(clean_name, {})
         if existing.get('found') or existing.get('igdb_found'):
             skipped += 1
+            matched_name = existing.get('name') or existing.get('display_name') or clean_name
+            matched_genre = existing.get('genre', '')
+            print(f'  [already matched] {original_name}  →  {matched_name}  [{matched_genre}]')
             continue
 
         done += 1
