@@ -165,17 +165,22 @@ class MetadataWorker(_StoppableMixin, QThread):
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, lib_config, plugin, stream, full_collection: bool = False):
+    def __init__(self, lib_config, plugin, stream, full_collection: bool = False, clear_failed: bool = False):
         _StoppableMixin.__init__(self)
         QThread.__init__(self)
         self._lib_config      = lib_config
         self._plugin          = plugin
         self._stream          = stream
         self._full_collection = full_collection
+        self._clear_failed    = clear_failed
 
     def run(self):
         with _redirect_stdout(self._stream):
             try:
+                if self._clear_failed:
+                    from modules.core.db import LibraryDB
+                    n = LibraryDB(self._lib_config.db_file).delete_failed_items()
+                    print(f'[Metadata] Cleared {n} failed item(s) before scan.')
                 from modules.core.base_metadata_processor import process_metadata
                 process_metadata(self._lib_config, self._plugin,
                                  full_collection=self._full_collection,

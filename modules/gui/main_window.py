@@ -626,6 +626,12 @@ class MainWindow(QMainWindow):
         self._meta_mode_grp.addButton(self._meta_radio_full, 2)
         meta_lay.addWidget(self._meta_radio_new)
         meta_lay.addWidget(self._meta_radio_full)
+        self._meta_clear_failed = QCheckBox('Clear failed items before scan')
+        self._meta_clear_failed.setToolTip(
+            'Delete all previously failed lookups from the DB before starting,\n'
+            'so they are retried fresh instead of carrying over old failures.'
+        )
+        meta_lay.addWidget(self._meta_clear_failed)
         meta_row = QHBoxLayout()
         self._meta_run_btn = QPushButton('Start Metadata Fetch')
         self._meta_run_btn.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
@@ -985,7 +991,8 @@ class MainWindow(QMainWindow):
             if ans != QMessageBox.StandardButton.Yes:
                 return
         w = MetadataWorker(self._lib_config, self._plugin, self._log.stream,
-                           full_collection=full)
+                           full_collection=full,
+                           clear_failed=self._meta_clear_failed.isChecked())
         self._start_worker(w, self._meta_run_btn, self._meta_stop_btn, self._meta_progress)
 
     def _run_organizer(self):
