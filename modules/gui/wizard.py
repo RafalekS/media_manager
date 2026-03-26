@@ -110,6 +110,14 @@ class _BaseWizard(QDialog):
         self._desc_lbl.setMinimumHeight(52)
         layout.addWidget(self._desc_lbl)
 
+        self._chk_clear_failed = QCheckBox('Clear failed items before metadata fetch')
+        self._chk_clear_failed.setToolTip(
+            'Delete all previously failed lookups from the DB before starting,\n'
+            'so they are retried fresh instead of carrying over old failures.'
+        )
+        self._chk_clear_failed.setVisible(False)
+        layout.addWidget(self._chk_clear_failed)
+
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._progress.setVisible(False)
@@ -193,6 +201,9 @@ class _BaseWizard(QDialog):
         self._progress.setVisible(False)
         self._btn_back.setVisible(index > 0)
         self._btn_skip.setVisible(step.get('skippable', False))
+        # Show "clear failed" checkbox on the step before metadata so user can set it first
+        meta_idx = self._meta_step_index()
+        self._chk_clear_failed.setVisible(meta_idx >= 0 and index == meta_idx - 1)
         self._btn_skip.setEnabled(True)
         self._btn_next.setEnabled(False)
         self._btn_next.setText('Finish' if is_last else 'Next →')
@@ -207,6 +218,10 @@ class _BaseWizard(QDialog):
         self._status_lbl.setProperty('role', role)
         self._status_lbl.style().unpolish(self._status_lbl)
         self._status_lbl.style().polish(self._status_lbl)
+
+    def _meta_step_index(self) -> int:
+        """Return the step index that runs metadata fetch, or -1 if none."""
+        return -1
 
     def _on_enter_step(self, index: int):
         pass
@@ -365,6 +380,9 @@ class NewItemsWizard(_BaseWizard):
         ]
         super().__init__(f'New Items — {plugin.name}', steps, lib_config, plugin, parent)
 
+    def _meta_step_index(self) -> int:
+        return 1
+
     def _on_enter_step(self, index: int):
         if index == 0:
             self._run_scan()
@@ -386,7 +404,8 @@ class NewItemsWizard(_BaseWizard):
     def _run_metadata(self):
         from modules.gui.workers import MetadataWorker
         self._start_worker(
-            MetadataWorker(self._lib_config, self._plugin, self._log.stream)
+            MetadataWorker(self._lib_config, self._plugin, self._log.stream,
+                           clear_failed=self._chk_clear_failed.isChecked())
         )
 
     def _run_organizer(self):
@@ -439,15 +458,35 @@ class RefreshDBWizard(_BaseWizard):
                 'skippable': True,
             },
         ]
+        self._meta_start_btn = None
         super().__init__(f'Refresh Database — {plugin.name}', steps, lib_config, plugin, parent)
+
+    def _meta_step_index(self) -> int:
+        return 0
 
     def _on_enter_step(self, index: int):
         if index == 0:
-            self._run_metadata()
+            self._show_meta_start_step()
         elif index == 1:
             self._show_failures_step()
         elif index == 2:
             self._run_html()
+
+    def _show_meta_start_step(self):
+        if self._meta_start_btn is None:
+            self._meta_start_btn = QPushButton('Start Metadata Fetch')
+            self._meta_start_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            self._meta_start_btn.clicked.connect(self._do_start_metadata)
+            layout = self.layout()
+            layout.insertWidget(layout.count() - 1, self._meta_start_btn)
+        self._meta_start_btn.setVisible(True)
+        self._chk_clear_failed.setVisible(True)
+        self._btn_next.setEnabled(False)
+
+    def _do_start_metadata(self):
+        self._meta_start_btn.setVisible(False)
+        self._chk_clear_failed.setVisible(False)
+        self._run_metadata()
 
     def _run_metadata(self):
         from modules.gui.workers import MetadataWorker
@@ -455,6 +494,7 @@ class RefreshDBWizard(_BaseWizard):
             MetadataWorker(
                 self._lib_config, self._plugin, self._log.stream,
                 full_collection=True,
+                clear_failed=self._chk_clear_failed.isChecked(),
             )
         )
 
@@ -527,6 +567,9 @@ class RebuildWizard(_BaseWizard):
         self._wipe_btn = None
         super().__init__(f'Rebuild from Scratch — {plugin.name}', steps, lib_config, plugin, parent)
 
+    def _meta_step_index(self) -> int:
+        return 1
+
     def _on_enter_step(self, index: int):
         if index == 0:
             self._show_wipe_step()
@@ -575,6 +618,7 @@ class RebuildWizard(_BaseWizard):
             MetadataWorker(
                 self._lib_config, self._plugin, self._log.stream,
                 full_collection=True,
+                clear_failed=self._chk_clear_failed.isChecked(),
             )
         )
 
