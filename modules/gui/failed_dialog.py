@@ -231,9 +231,17 @@ class FailedItemsDialog(QDialog):
         self._btn_save_found.clicked.connect(self._save_found)
         layout.addWidget(self._btn_save_found)
 
+        bottom_row = QHBoxLayout()
+        btn_clear_all = QPushButton('Clear All Failed')
+        btn_clear_all.setObjectName('btn_danger')
+        btn_clear_all.setToolTip('Delete all failed items from the database.')
+        btn_clear_all.clicked.connect(self._clear_all_failed)
+        bottom_row.addWidget(btn_clear_all)
+        bottom_row.addStretch()
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         btn_box.rejected.connect(self.accept)
-        layout.addWidget(btn_box)
+        bottom_row.addWidget(btn_box)
+        layout.addLayout(bottom_row)
 
     # ── Load data ─────────────────────────────────────────────────────
     def _load_data(self):
@@ -649,3 +657,19 @@ class FailedItemsDialog(QDialog):
         self._retry_log.moveCursor(QTextCursor.MoveOperation.End)
         self._retry_log.insertPlainText(text)
         self._retry_log.ensureCursorVisible()
+
+    def _clear_all_failed(self):
+        from modules.core.db import LibraryDB
+        db = LibraryDB(self._lib_config.db_file)
+        count = db.count_failed()
+        if count == 0:
+            QMessageBox.information(self, 'Clear Failed Items', 'No failed items in the database.')
+            return
+        ans = QMessageBox.question(
+            self, 'Clear Failed Items',
+            f'Delete all {count} failed item(s) from the database?\n\nThis cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            db.delete_failed_items()
+            self._populate_table()
