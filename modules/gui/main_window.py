@@ -653,6 +653,17 @@ class MainWindow(QMainWindow):
             has_stop=False,
         )
         _fp.setVisible(False)
+        btn_clear_failed = QPushButton('Clear Failed Items')
+        btn_clear_failed.setObjectName('btn_danger')
+        btn_clear_failed.setSizePolicy(QSP.Policy.Fixed, QSP.Policy.Fixed)
+        btn_clear_failed.setToolTip('Delete all failed items from the database.')
+        btn_clear_failed.clicked.connect(self._clear_failed_items)
+        # Insert button into the existing button row (first QHBoxLayout in failed_grp)
+        for i in range(failed_grp.layout().count()):
+            item = failed_grp.layout().itemAt(i)
+            if item and item.layout() and isinstance(item.layout(), QHBoxLayout):
+                item.layout().insertWidget(1, btn_clear_failed)
+                break
         lay.addWidget(failed_grp)
 
         # ── Organize ──────────────────────────────────────────────────
@@ -1055,6 +1066,25 @@ class MainWindow(QMainWindow):
     def _open_failed_dialog(self):
         from modules.gui.failed_dialog import FailedItemsDialog
         FailedItemsDialog(self._lib_config, self._plugin, self, ui_state=self._ui_state).exec()
+
+    def _clear_failed_items(self):
+        if not self._lib_config:
+            return
+        from modules.core.db import LibraryDB
+        db = LibraryDB(self._lib_config.db_file)
+        count = db.count_failed()
+        if count == 0:
+            QMessageBox.information(self, 'Clear Failed Items', 'No failed items in the database.')
+            return
+        ans = QMessageBox.question(
+            self, 'Clear Failed Items',
+            f'Delete all {count} failed item(s) from the database?\n\nThis cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            deleted = db.delete_failed_items()
+            QMessageBox.information(self, 'Done', f'Removed {deleted} failed item(s).')
+            self._refresh_dashboard()
 
     def _open_html(self):
         html_file = self._lib_config.html_file

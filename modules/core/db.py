@@ -256,6 +256,15 @@ class LibraryDB:
                 'SELECT COUNT(*) FROM metadata_items WHERE found = 0'
             ).fetchone()[0]
 
+    def delete_failed_items(self) -> int:
+        """Delete all metadata_items where found=0. Returns count deleted."""
+        with self._conn() as conn:
+            count = conn.execute(
+                'SELECT COUNT(*) FROM metadata_items WHERE found = 0'
+            ).fetchone()[0]
+            conn.execute('DELETE FROM metadata_items WHERE found = 0')
+        return count
+
     def count_organized(self) -> int:
         """Items that are found AND have a genre assigned."""
         with self._conn() as conn:
