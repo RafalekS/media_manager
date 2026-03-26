@@ -8,7 +8,7 @@ import json
 import time
 from pathlib import Path
 
-from modules.core.utils import load_metadata_progress, save_metadata_progress, is_path_skipped
+from modules.core.utils import load_metadata_progress, save_metadata_progress, is_path_skipped, load_scan_list
 from modules.providers import get_provider_class
 
 
@@ -24,14 +24,9 @@ def process_metadata(lib_config, plugin, full_collection: bool = False, stop_fn=
             return
     else:
         scan_file = lib_config.scan_list_file
-        if not Path(scan_file).exists():
-            print(f'[Metadata] scan_list.json not found: {scan_file}')
-            print('[Metadata] Run a scan first.')
-            return
-        with open(scan_file, 'r', encoding='utf-8') as f:
-            scan_list = json.load(f)
+        scan_list = load_scan_list(scan_file)
         if not scan_list:
-            print('[Metadata] Scan list is empty.')
+            print('[Metadata] Scan list is empty — run a scan first.')
             return
 
     meta_file = lib_config.metadata_file
