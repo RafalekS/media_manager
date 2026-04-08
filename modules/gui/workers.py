@@ -297,9 +297,10 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
 
 # ──────────────────────────────────────────────────────────────────────────────
 class OrganizerWorker(QThread):
-    """Generate organize .bat file."""
-    progress = pyqtSignal(str)
-    finished = pyqtSignal(bool, str)
+    """Build move plan from metadata. Plan is emitted for user review."""
+    progress   = pyqtSignal(str)
+    plan_ready = pyqtSignal(list)   # emits list of plan-item dicts
+    finished   = pyqtSignal(bool, str)
 
     def __init__(self, lib_config, plugin, stream):
         super().__init__()
@@ -311,9 +312,14 @@ class OrganizerWorker(QThread):
         with _redirect_stdout(self._stream):
             try:
                 from modules.core.base_organizer import BaseOrganizer
-                org = BaseOrganizer(self._lib_config, self._plugin)
-                org.run_headless()
-                self.finished.emit(True, 'Organizer script generated.')
+                org   = BaseOrganizer(self._lib_config, self._plugin)
+                items = org.build_plan_only()
+                if not items:
+                    self.finished.emit(False, 'No items to organize.')
+                    return
+                print(f'[Organizer] Plan built: {len(items)} move(s). Review in dialog.')
+                self.plan_ready.emit(items)
+                self.finished.emit(True, f'{len(items)} move(s) ready for review.')
             except Exception as e:
                 traceback.print_exc()
                 self.finished.emit(False, str(e))

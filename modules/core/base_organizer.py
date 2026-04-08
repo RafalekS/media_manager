@@ -189,7 +189,7 @@ class BaseOrganizer:
                 skipped.append(item_data.get('original_name', key))
                 continue
 
-            orig_name = item_data.get('original_name', key)
+            orig_name = item_data.get('original_name') or key
 
             # ── Update/patch routing ──────────────────────────────────────
             if self.plugin.is_update(orig_name):
@@ -202,7 +202,7 @@ class BaseOrganizer:
                 continue
 
             # ── Normal routing ─────────────────────────────────────────────
-            safe_name = sanitize_folder_name(orig_name, self._noise_re)
+            safe_name = sanitize_folder_name(orig_name, self._noise_re) or self._clean_folder_name(key)
             target = self.base_path / folder_name / safe_name
 
             plan.append({
@@ -326,6 +326,10 @@ class BaseOrganizer:
         except Exception as e:
             print(f'[ERROR] Failed to write .bat: {e}')
             return False
+
+    def build_plan_only(self) -> list:
+        """Load and return the move plan without generating any files."""
+        return self.load_items_for_organization()
 
     def run_headless(self):
         """Load plan and generate .bat. Returns (items, success)."""

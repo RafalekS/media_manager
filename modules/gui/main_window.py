@@ -997,10 +997,14 @@ class MainWindow(QMainWindow):
 
     def _run_organizer(self):
         from modules.gui.workers import OrganizerWorker
-        self._start_worker(
-            OrganizerWorker(self._lib_config, self._plugin, self._log.stream),
-            self._org_run_btn, self._org_stop_btn, self._org_progress,
-        )
+        worker = OrganizerWorker(self._lib_config, self._plugin, self._log.stream)
+        worker.plan_ready.connect(self._on_organizer_plan_ready)
+        self._start_worker(worker, self._org_run_btn, self._org_stop_btn, self._org_progress)
+
+    def _on_organizer_plan_ready(self, items: list):
+        from modules.gui.organize_plan_dialog import OrganizePlanDialog
+        dlg = OrganizePlanDialog(items, self._lib_config, self._plugin, self)
+        dlg.exec()
 
     def _run_html(self):
         from modules.gui.workers import HTMLWorker
