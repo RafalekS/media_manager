@@ -410,9 +410,14 @@ class NewItemsWizard(_BaseWizard):
 
     def _run_organizer(self):
         from modules.gui.workers import OrganizerWorker
-        self._start_worker(
-            OrganizerWorker(self._lib_config, self._plugin, self._log.stream)
-        )
+        worker = OrganizerWorker(self._lib_config, self._plugin, self._log.stream)
+        worker.plan_ready.connect(self._on_organizer_plan_ready)
+        self._start_worker(worker)
+
+    def _on_organizer_plan_ready(self, items: list):
+        from modules.gui.organize_plan_dialog import OrganizePlanDialog
+        dlg = OrganizePlanDialog(items, self._lib_config, self._plugin, self)
+        dlg.exec()
 
     def _run_html(self):
         from modules.gui.workers import HTMLWorker
@@ -624,9 +629,14 @@ class RebuildWizard(_BaseWizard):
 
     def _run_organizer(self):
         from modules.gui.workers import OrganizerWorker
-        self._start_worker(
-            OrganizerWorker(self._lib_config, self._plugin, self._log.stream)
-        )
+        worker = OrganizerWorker(self._lib_config, self._plugin, self._log.stream)
+        worker.plan_ready.connect(self._on_organizer_plan_ready)
+        self._start_worker(worker)
+
+    def _on_organizer_plan_ready(self, items: list):
+        from modules.gui.organize_plan_dialog import OrganizePlanDialog
+        dlg = OrganizePlanDialog(items, self._lib_config, self._plugin, self)
+        dlg.exec()
 
     def _run_html(self):
         from modules.gui.workers import HTMLWorker
