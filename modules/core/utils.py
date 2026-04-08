@@ -5,8 +5,49 @@ All functions are media-type-agnostic; behaviour is controlled by the plugin.
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+# ── Folder name sanitization ───────────────────────────────────────────────────
+
+_DEFAULT_NOISE_WORDS = [
+    'TENOKE', 'CODEX', 'DODI', 'FLT', 'SKIDROW', 'PLAZA', 'CPY', 'RELOADED',
+    'HOODLUM', 'PROPHET', 'SIMPLEX', 'TiNYiSO', 'RAZOR1911', 'DEVIANCE',
+    'EMPRESS', 'FCKDRM', 'KAOS', 'NOFEAR', 'DARKSiDERS', 'DARKSIDERS',
+    'DOGE', 'FIGA', 'GOLDBERG', 'GOG', 'Update', 'Repack', 'MULTi',
+]
+
+_VERSION_RE = re.compile(
+    r'\bv?\d+(?:\.\d+){1,4}\b'
+    r'|\bv\d+\b'
+    r'|\bBuild\s*\d+\b',
+    re.IGNORECASE,
+)
+
+
+def build_noise_re(words: list) -> re.Pattern:
+    return re.compile(
+        r'\b(?:' + '|'.join(re.escape(w) for w in words) + r')\b',
+        re.IGNORECASE,
+    )
+
+
+def sanitize_folder_name(name: str, noise_re: re.Pattern = None) -> str:
+    """Replace separators, strip version numbers and noise tags, collapse whitespace.
+    Also strips filesystem-unsafe characters."""
+    if noise_re is None:
+        noise_re = build_noise_re(_DEFAULT_NOISE_WORDS)
+    s = name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
+    s = _VERSION_RE.sub('', s)
+    s = noise_re.sub('', s)
+    # Remove filesystem-unsafe characters
+    for ch in r':*?"<>|':
+        s = s.replace(ch, '')
+    for ch in r'/\\|':
+        s = s.replace(ch, '-')
+    return ' '.join(s.split()).strip()
 
 
 def is_path_skipped(path: Path, skip_list: list) -> bool:

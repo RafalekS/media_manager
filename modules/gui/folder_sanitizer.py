@@ -21,41 +21,19 @@ from PyQt6.QtWidgets import (
 from modules.gui.ui_state import UIState
 from modules.gui.table_utils import CITableWidgetItem
 from modules.core.config_manager import GlobalConfig
-from modules.core.utils import is_path_skipped
-
-# Default noise words (fallback if not set in library config)
-_DEFAULT_NOISE_WORDS = [
-    'TENOKE', 'CODEX', 'DODI', 'FLT', 'SKIDROW', 'PLAZA', 'CPY', 'RELOADED',
-    'HOODLUM', 'PROPHET', 'SIMPLEX', 'TiNYiSO', 'RAZOR1911', 'DEVIANCE',
-    'EMPRESS', 'FCKDRM', 'KAOS', 'NOFEAR', 'DARKSiDERS', 'DARKSIDERS',
-    'DOGE', 'FIGA', 'GOLDBERG', 'GOG', 'Update', 'Repack', 'MULTi',
-]
-
-# Version numbers: v1.401, v2, 1.33.0, 1.0.0.1, Build 12345
-_VERSION_RE = re.compile(
-    r'\bv?\d+(?:\.\d+){1,4}\b'
-    r'|\bv\d+\b'
-    r'|\bBuild\s*\d+\b',
-    re.IGNORECASE,
+from modules.core.utils import (
+    is_path_skipped, sanitize_folder_name, build_noise_re,
+    _DEFAULT_NOISE_WORDS,
 )
 
 
 def _build_noise_re(words: list) -> re.Pattern:
-    return re.compile(
-        r'\b(?:' + '|'.join(re.escape(w) for w in words) + r')\b',
-        re.IGNORECASE,
-    )
+    return build_noise_re(words)
 
 
 def clean_folder_name(name: str, noise_re: re.Pattern = None) -> str:
-    """Replace separators, strip version numbers and noise tags, collapse whitespace."""
-    if noise_re is None:
-        noise_re = _build_noise_re(_DEFAULT_NOISE_WORDS)
-    s = name.replace('.', ' ').replace('_', ' ').replace('-', ' ')
-    s = _VERSION_RE.sub('', s)
-    s = noise_re.sub('', s)
-    s = ' '.join(s.split())
-    return s.strip()
+    """Alias for sanitize_folder_name (kept for compatibility)."""
+    return sanitize_folder_name(name, noise_re)
 
 
 # ── Column indices ─────────────────────────────────────────────────────────────

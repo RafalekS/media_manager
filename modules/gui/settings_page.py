@@ -351,7 +351,7 @@ class SettingsPage(QWidget):
         for folder in lib_config.data.get('skip_folders', []):
             self._skip_list.addItem(folder)
 
-        from modules.gui.folder_sanitizer import _DEFAULT_NOISE_WORDS
+        from modules.core.utils import _DEFAULT_NOISE_WORDS
         noise = lib_config.data.get('sanitize_noise_words', _DEFAULT_NOISE_WORDS)
         self._noise_words.setText(', '.join(noise))
 

@@ -16,7 +16,10 @@ from datetime import datetime
 from pathlib import Path
 
 from modules.core.config_manager import LibraryConfig
-from modules.core.utils import load_metadata_progress
+from modules.core.utils import (
+    load_metadata_progress, sanitize_folder_name,
+    build_noise_re, _DEFAULT_NOISE_WORDS,
+)
 
 
 class BaseOrganizer:
@@ -29,6 +32,8 @@ class BaseOrganizer:
         self.genre_map   = {}      # raw_genre -> folder_name
         self._dest_cache: dict = {}
         self._source_cache: dict = {}
+        noise_words = lib_config.data.get('sanitize_noise_words', _DEFAULT_NOISE_WORDS)
+        self._noise_re = build_noise_re(noise_words)
         self._load_genre_map()
 
     # ── Genre mapping ──────────────────────────────────────────────────────
@@ -197,7 +202,7 @@ class BaseOrganizer:
                 continue
 
             # ── Normal routing ─────────────────────────────────────────────
-            safe_name = self._clean_folder_name(self.plugin.clean_name(orig_name))
+            safe_name = sanitize_folder_name(orig_name, self._noise_re)
             target = self.base_path / folder_name / safe_name
 
             plan.append({
@@ -222,13 +227,13 @@ class BaseOrganizer:
 
     def _build_update_entry(self, key, orig_name, item_data, raw_genre, folder_name,
                              seen_paths, plan) -> dict | None:
-        update_safe = self._clean_folder_name(self.plugin.clean_update_name(orig_name))
+        update_safe = sanitize_folder_name(self.plugin.clean_update_name(orig_name), self._noise_re)
         base_clean  = self.plugin.clean_name(orig_name)
         base_result = self._find_in_dest(base_clean)
 
         if base_result:
             base_path, base_genre = base_result
-            base_clean_name = self._clean_folder_name(self.plugin.clean_name(base_path.name))
+            base_clean_name = sanitize_folder_name(base_path.name, self._noise_re)
             clean_base_path = self.base_path / base_genre / base_clean_name
 
             # Rename dirty base game folder if needed
@@ -262,7 +267,7 @@ class BaseOrganizer:
                 'is_rename': False,
             }
         else:
-            base_safe = self._clean_folder_name(base_clean)
+            base_safe = sanitize_folder_name(orig_name, self._noise_re)
             return {
                 'key': key,
                 'original_name': orig_name,
