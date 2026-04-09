@@ -2,8 +2,9 @@
 Organize Plan Review Dialog.
 
 Shows the planned moves from BaseOrganizer in an editable table.
-User can deselect items, change the genre/destination via dropdown,
-then generate the .bat file when satisfied.
+Genre column uses actual QComboBox widgets (always visible, immediately
+interactive). User can deselect items, change genre, then generate the
+.bat file.
 """
 
 from pathlib import Path
@@ -13,7 +14,6 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QHeaderView, QAbstractItemView,
     QMessageBox, QFrame, QApplication, QComboBox,
-    QStyledItemDelegate,
 )
 
 from modules.gui.table_utils import CITableWidgetItem
@@ -23,38 +23,12 @@ from modules.core.utils import sanitize_folder_name, _DEFAULT_NOISE_WORDS, build
 
 _STATE_KEY = 'organize_plan_table'
 
-_COL_CHECK = 0
-_COL_ORIG  = 1
-_COL_NAME  = 2
-_COL_GENRE = 3
+_COL_CHECK  = 0
+_COL_ORIG   = 1
+_COL_NAME   = 2
+_COL_GENRE  = 3
 _COL_TARGET = 4
 
-
-# ── Editable ComboBox delegate for the Genre column ────────────────────────────
-
-class _GenreDelegate(QStyledItemDelegate):
-    def __init__(self, genres: list[str], parent=None):
-        super().__init__(parent)
-        self._genres = genres   # sorted list of known genres
-
-    def createEditor(self, parent, option, index):
-        cb = QComboBox(parent)
-        cb.setEditable(True)
-        cb.addItems(self._genres)
-        cb.setCurrentText(index.data(Qt.ItemDataRole.DisplayRole) or '')
-        return cb
-
-    def setEditorData(self, editor, index):
-        editor.setCurrentText(index.data(Qt.ItemDataRole.DisplayRole) or '')
-
-    def setModelData(self, editor, model, index):
-        model.setData(index, editor.currentText(), Qt.ItemDataRole.EditRole)
-
-    def updateEditorGeometry(self, editor, option, index):
-        editor.setGeometry(option.rect)
-
-
-# ── Dialog ─────────────────────────────────────────────────────────────────────
 
 class OrganizePlanDialog(QDialog):
     """Review and edit the organizer move plan before generating the .bat file."""
@@ -111,6 +85,15 @@ class OrganizePlanDialog(QDialog):
     def _known_genres(self) -> list[str]:
         return sorted(self._genre_map.keys())
 
+    def _make_genre_combo(self, current_genre: str, row_idx: int) -> QComboBox:
+        cb = QComboBox()
+        cb.setEditable(True)
+        cb.addItems(self._known_genres())
+        cb.setCurrentText(current_genre)
+        cb.setProperty('row_idx', row_idx)
+        cb.currentTextChanged.connect(lambda text, ri=row_idx: self._on_genre_changed(ri, text))
+        return cb
+
     # ── UI ─────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -123,8 +106,8 @@ class OrganizePlanDialog(QDialog):
         lay.addWidget(title)
 
         desc = QLabel(
-            'Review the planned moves. Edit the Genre column to change the destination folder — '
-            'pick from the dropdown or type a new genre. Uncheck items to skip them.'
+            'Review the planned moves. Change the Genre dropdown to move an item to a different '
+            'folder — Target Path updates automatically. Uncheck items to skip them.'
         )
         desc.setWordWrap(True)
         desc.setProperty('role', 'muted')
@@ -144,6 +127,7 @@ class OrganizePlanDialog(QDialog):
         )
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSortingEnabled(False)   # cell widgets + sorting don't mix
 
         hdr = self._table.horizontalHeader()
         for i in range(self._table.columnCount()):
@@ -152,16 +136,14 @@ class OrganizePlanDialog(QDialog):
         hdr.setStretchLastSection(False)
         hdr.sectionResized.connect(lambda *_: self._schedule_save())
         hdr.sectionMoved.connect(lambda *_: self._schedule_save())
-        hdr.sortIndicatorChanged.connect(lambda *_: self._schedule_save())
 
         self._table.setColumnWidth(_COL_CHECK,   30)
         self._table.setColumnWidth(_COL_ORIG,   220)
         self._table.setColumnWidth(_COL_NAME,   220)
-        self._table.setColumnWidth(_COL_GENRE,  160)
-        self._table.setColumnWidth(_COL_TARGET, 420)
+        self._table.setColumnWidth(_COL_GENRE,  180)
+        self._table.setColumnWidth(_COL_TARGET, 400)
 
         self._table.verticalHeader().setVisible(False)
-        self._table.setItemDelegateForColumn(_COL_GENRE, _GenreDelegate(self._known_genres(), self))
         self._table.itemChanged.connect(self._on_item_changed)
         self._table.itemClicked.connect(self._on_item_clicked)
 
@@ -195,7 +177,6 @@ class OrganizePlanDialog(QDialog):
     # ── Population ─────────────────────────────────────────────────────────────
 
     def _populate(self):
-        self._table.setSortingEnabled(False)
         self._table.blockSignals(True)
         self._table.setRowCount(0)
 
@@ -203,68 +184,39 @@ class OrganizePlanDialog(QDialog):
             r = self._table.rowCount()
             self._table.insertRow(r)
 
+            # Checkbox
             chk = CITableWidgetItem()
             chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
             chk.setCheckState(Qt.CheckState.Checked)
             chk.setData(Qt.ItemDataRole.UserRole, row_idx)
             self._table.setItem(r, _COL_CHECK, chk)
 
+            # Original Name (read-only)
             orig_item = CITableWidgetItem(item.get('original_name', ''))
             orig_item.setFlags(orig_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_ORIG, orig_item)
 
+            # Display Name (read-only)
             name_item = CITableWidgetItem(item.get('display_name', ''))
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_NAME, name_item)
 
-            genre_item = CITableWidgetItem(item.get('genre', ''))
-            self._table.setItem(r, _COL_GENRE, genre_item)
+            # Genre — actual QComboBox widget
+            cb = self._make_genre_combo(item.get('genre', ''), row_idx)
+            self._table.setCellWidget(r, _COL_GENRE, cb)
 
+            # Target Path (read-only)
             target_item = CITableWidgetItem(str(item.get('target_path', '')))
             target_item.setFlags(target_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_TARGET, target_item)
 
         self._table.blockSignals(False)
-        self._table.setSortingEnabled(True)
         self._update_status()
 
-    # ── Item changed / clicked ─────────────────────────────────────────────────
+    # ── Genre changed ──────────────────────────────────────────────────────────
 
-    def _on_item_changed(self, item: CITableWidgetItem):
-        if item.column() == _COL_GENRE:
-            self._recompute_target(item.row())
-        self._update_status()
-
-    def _on_item_clicked(self, item):
-        if item.column() != _COL_CHECK:
-            return
-        row   = item.row()
-        state = item.checkState()
-        if (self._last_checked_row is not None
-                and QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier):
-            lo = min(self._last_checked_row, row)
-            hi = max(self._last_checked_row, row)
-            self._table.itemChanged.disconnect(self._on_item_changed)
-            for r in range(lo, hi + 1):
-                chk = self._table.item(r, _COL_CHECK)
-                if chk:
-                    chk.setCheckState(state)
-            self._table.itemChanged.connect(self._on_item_changed)
-            self._update_status()
-        self._last_checked_row = row
-
-    def _recompute_target(self, row: int):
-        chk_item = self._table.item(row, _COL_CHECK)
-        if chk_item is None:
-            return
-        row_idx = chk_item.data(Qt.ItemDataRole.UserRole)
-        if row_idx is None:
-            return
-
-        genre_item = self._table.item(row, _COL_GENRE)
-        if not genre_item:
-            return
-        new_genre   = genre_item.text().strip()
+    def _on_genre_changed(self, row_idx: int, new_genre: str):
+        """Triggered by QComboBox.currentTextChanged for a specific item."""
         item        = self._items[row_idx]
         folder_name = self._folder_name_for_genre(new_genre) if new_genre else item.get('folder_name', '')
         orig_name   = item.get('original_name', '')
@@ -285,11 +237,40 @@ class OrganizePlanDialog(QDialog):
         item['folder_name'] = folder_name
         item['target_path'] = new_target
 
-        target_item = self._table.item(row, _COL_TARGET)
-        if target_item:
-            self._table.blockSignals(True)
-            target_item.setText(str(new_target))
-            self._table.blockSignals(False)
+        # Find the table row for this row_idx and update Target Path cell
+        for r in range(self._table.rowCount()):
+            chk = self._table.item(r, _COL_CHECK)
+            if chk and chk.data(Qt.ItemDataRole.UserRole) == row_idx:
+                target_item = self._table.item(r, _COL_TARGET)
+                if target_item:
+                    self._table.blockSignals(True)
+                    target_item.setText(str(new_target))
+                    self._table.blockSignals(False)
+                break
+
+    # ── Item changed / clicked ─────────────────────────────────────────────────
+
+    def _on_item_changed(self, item: CITableWidgetItem):
+        if item.column() == _COL_CHECK:
+            self._update_status()
+
+    def _on_item_clicked(self, item):
+        if item.column() != _COL_CHECK:
+            return
+        row   = item.row()
+        state = item.checkState()
+        if (self._last_checked_row is not None
+                and QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier):
+            lo = min(self._last_checked_row, row)
+            hi = max(self._last_checked_row, row)
+            self._table.itemChanged.disconnect(self._on_item_changed)
+            for r in range(lo, hi + 1):
+                chk = self._table.item(r, _COL_CHECK)
+                if chk:
+                    chk.setCheckState(state)
+            self._table.itemChanged.connect(self._on_item_changed)
+            self._update_status()
+        self._last_checked_row = row
 
     # ── Select helpers ─────────────────────────────────────────────────────────
 
