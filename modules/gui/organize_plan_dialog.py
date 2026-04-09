@@ -196,18 +196,18 @@ class OrganizePlanDialog(QDialog):
             orig_item.setFlags(orig_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(r, _COL_ORIG, orig_item)
 
-            # Display Name (read-only)
+            # Display Name (editable — updates target path on change)
             name_item = CITableWidgetItem(item.get('display_name', ''))
-            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            name_item.setData(Qt.ItemDataRole.UserRole + 1, row_idx)
             self._table.setItem(r, _COL_NAME, name_item)
 
             # Genre — actual QComboBox widget
             cb = self._make_genre_combo(item.get('genre', ''), row_idx)
             self._table.setCellWidget(r, _COL_GENRE, cb)
 
-            # Target Path (read-only)
+            # Target Path (directly editable — full manual override)
             target_item = CITableWidgetItem(str(item.get('target_path', '')))
-            target_item.setFlags(target_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            target_item.setData(Qt.ItemDataRole.UserRole + 1, row_idx)
             self._table.setItem(r, _COL_TARGET, target_item)
 
         self._table.blockSignals(False)
@@ -219,40 +219,63 @@ class OrganizePlanDialog(QDialog):
         """Triggered by QComboBox.currentTextChanged for a specific item."""
         item        = self._items[row_idx]
         folder_name = self._folder_name_for_genre(new_genre) if new_genre else item.get('folder_name', '')
+        item['genre']       = new_genre
+        item['folder_name'] = folder_name
+
+        # Find table row
+        for r in range(self._table.rowCount()):
+            chk = self._table.item(r, _COL_CHECK)
+            if chk and chk.data(Qt.ItemDataRole.UserRole) == row_idx:
+                self._recompute_target(row_idx, r)
+                break
+
+    def _recompute_target(self, row_idx: int, table_row: int):
+        """Recompute target path from current item state and update the Target cell."""
+        item        = self._items[row_idx]
+        folder_name = item.get('folder_name', '')
         orig_name   = item.get('original_name', '')
+        display     = item.get('display_name', '') or orig_name
 
         if item.get('is_rename'):
             current    = item.get('current_path')
             new_target = Path(current).parent / folder_name if current else Path(folder_name)
         elif item.get('is_update'):
-            safe_name   = sanitize_folder_name(orig_name, self._noise_re) or orig_name
+            safe_name   = sanitize_folder_name(display, self._noise_re) or display
             update_name = self._plugin.clean_update_name(orig_name) if orig_name else ''
             update_safe = sanitize_folder_name(update_name, self._noise_re) or update_name
             new_target  = self._base_path / folder_name / safe_name / 'Updates' / update_safe
         else:
-            safe_name  = sanitize_folder_name(orig_name, self._noise_re) or orig_name
+            safe_name  = sanitize_folder_name(display, self._noise_re) or display
             new_target = self._base_path / folder_name / safe_name
 
-        item['genre']       = new_genre
-        item['folder_name'] = folder_name
         item['target_path'] = new_target
 
-        # Find the table row for this row_idx and update Target Path cell
-        for r in range(self._table.rowCount()):
-            chk = self._table.item(r, _COL_CHECK)
-            if chk and chk.data(Qt.ItemDataRole.UserRole) == row_idx:
-                target_item = self._table.item(r, _COL_TARGET)
-                if target_item:
-                    self._table.blockSignals(True)
-                    target_item.setText(str(new_target))
-                    self._table.blockSignals(False)
-                break
+        target_item = self._table.item(table_row, _COL_TARGET)
+        if target_item:
+            self._table.blockSignals(True)
+            target_item.setText(str(new_target))
+            self._table.blockSignals(False)
 
     # ── Item changed / clicked ─────────────────────────────────────────────────
 
     def _on_item_changed(self, item: CITableWidgetItem):
-        if item.column() == _COL_CHECK:
+        col = item.column()
+        if col == _COL_CHECK:
             self._update_status()
+        elif col == _COL_NAME:
+            row_idx = item.data(Qt.ItemDataRole.UserRole + 1)
+            if row_idx is None:
+                return
+            new_name = item.text().strip()
+            self._items[row_idx]['display_name'] = new_name
+            # Recompute target using new display name as folder name
+            self._recompute_target(row_idx, item.row())
+        elif col == _COL_TARGET:
+            row_idx = item.data(Qt.ItemDataRole.UserRole + 1)
+            if row_idx is None:
+                return
+            # Direct override — store exactly what user typed
+            self._items[row_idx]['target_path'] = Path(item.text().strip())
 
     def _on_item_clicked(self, item):
         if item.column() != _COL_CHECK:
