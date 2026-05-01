@@ -245,7 +245,9 @@ def _build_full_collection_scan(lib_config, plugin) -> list:
     skip_list = list(lib_config.skip_folders) + ['new']
     scan_mode  = lib_config.data.get('scan_mode', 'folders')
     extensions = [e.lower() for e in lib_config.data.get('file_extensions', [])]
-    scan_depth = lib_config.data.get('scan_depth', 1)
+    # scan_depth is relative to destination_base (e.g. 2 = base/genre/game).
+    # This function already descends one level into genre dirs, so pass depth-1 to _scan_target.
+    scan_depth = max(1, lib_config.data.get('scan_depth', 2) - 1)
 
     items = []
     dest_path = Path(dest)

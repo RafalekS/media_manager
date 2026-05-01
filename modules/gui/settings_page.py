@@ -131,11 +131,12 @@ class SettingsPage(QWidget):
 
         self._scan_depth = QSpinBox()
         self._scan_depth.setRange(1, 5)
-        self._scan_depth.setValue(1)
+        self._scan_depth.setValue(2)
         self._scan_depth.setToolTip(
-            '1 = immediate subfolders (games, movies)\n'
-            '2 = Genre\\Artist level (music)\n'
-            '3 = Genre\\Artist\\Album level'
+            'Depth from destination base:\n'
+            '1 = Base\\Item (flat library)\n'
+            '2 = Base\\Genre\\Game (typical games/movies)\n'
+            '3 = Base\\Genre\\Artist\\Album (music)'
         )
         self._scan_depth_label = QLabel('Scan depth:')
         paths_form.addRow(self._scan_depth_label, self._scan_depth)

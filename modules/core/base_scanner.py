@@ -37,9 +37,16 @@ def process_scan(lib_config: LibraryConfig, plugin, force: bool = True) -> list[
 
     scan_mode  = lib_config.data.get('scan_mode', 'folders')
     extensions = [e.lower() for e in lib_config.data.get('file_extensions', [])]
-    scan_depth = lib_config.data.get('scan_depth', 1)
+    scan_depth = lib_config.data.get('scan_depth', 2)
 
-    items = _scan_target(scan_target, plugin.clean_name, scan_mode, extensions, depth=scan_depth)
+    # When scanning the source (New) folder, items are always direct children (depth 1).
+    # scan_depth only applies when scanning destination_base directly.
+    if scan_target == dest_folder:
+        depth = scan_depth
+    else:
+        depth = 1
+
+    items = _scan_target(scan_target, plugin.clean_name, scan_mode, extensions, depth=depth)
     if items:
         save_scan_list(items, scan_file)
     return items
