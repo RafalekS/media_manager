@@ -234,6 +234,71 @@ def _merge_supplement(primary: dict, supplement: dict):
             primary[key] = supplement[key]
 
 
+def process_specific_items(lib_config, plugin, keys: list, stop_fn=None):
+    """
+    Force re-scrape specific DB items (by their DB key), bypassing the
+    'already found' skip. Saves results directly to the DB.
+    """
+    from modules.core.db import LibraryDB
+
+    if not keys:
+        return
+
+    db = LibraryDB(Path(lib_config.metadata_file))
+
+    api_cfg     = lib_config.api
+    primary     = _build_provider(lib_config.primary_provider, api_cfg)
+    supplements = [
+        _build_provider(name, api_cfg)
+        for name in lib_config.supplement_providers
+        if name
+    ]
+    supplements = [p for p in supplements if p is not None]
+
+    if primary is None:
+        print(f'[Scrape] No primary provider configured.')
+        return
+
+    primary.authenticate()
+    for sup in supplements:
+        sup.authenticate()
+
+    total = len(keys)
+    found = 0
+
+    for i, db_key in enumerate(keys, 1):
+        if stop_fn and stop_fn():
+            print('[Scrape] Stopped by user.')
+            break
+
+        existing  = db.get_item(db_key) or {}
+        full_path = existing.get('full_path', '')
+        # db_key is the clean_name used as PK — use it directly as search query
+        print(f'[{i}/{total}] Scraping: {db_key}')
+
+        try:
+            result = _query_with_supplements(primary, supplements, db_key)
+        except Exception as e:
+            print(f'  Error: {e} — skipping.')
+            result = None
+
+        if result:
+            result['original_name'] = existing.get('original_name', db_key)
+            result['full_path']     = full_path
+            result['found']         = True
+            result['igdb_found']    = True
+            result['manual']        = False
+            db.set_item(db_key, result)
+            found += 1
+            print(f'  ✓ {result.get("name", "")}  [{result.get("genre", "")}]')
+        else:
+            print(f'  ✗ Not found.')
+
+        time.sleep(lib_config.data.get('rate_limit', 0.25))
+
+    print(f'\n[Scrape] Done: {found}/{total} found')
+
+
 def _build_full_collection_scan(lib_config, plugin) -> list:
     """
     Build a scan list from the destination folder directly (full-collection mode).

@@ -15,6 +15,9 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 @contextmanager
 def _redirect_stdout(stream):
+    if stream is None:
+        yield
+        return
     old = sys.stdout
     sys.stdout = stream
     try:
@@ -344,6 +347,33 @@ class HTMLWorker(QThread):
                 gen = DynamicHTMLGenerator(self._lib_config, self._plugin)
                 gen.generate()
                 self.finished.emit(True, 'HTML generated.')
+            except Exception as e:
+                traceback.print_exc()
+                self.finished.emit(False, str(e))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+class ScrapeWorker(_StoppableMixin, QThread):
+    """Re-scrape specific library items by DB key and save results to DB."""
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, lib_config, plugin, stream, keys: list):
+        _StoppableMixin.__init__(self)
+        QThread.__init__(self)
+        self._lib_config = lib_config
+        self._plugin     = plugin
+        self._stream     = stream
+        self._keys       = keys
+
+    def run(self):
+        with _redirect_stdout(self._stream):
+            try:
+                from modules.core.base_metadata_processor import process_specific_items
+                process_specific_items(
+                    self._lib_config, self._plugin,
+                    self._keys, stop_fn=self.should_stop,
+                )
+                self.finished.emit(True, f'Scrape done ({len(self._keys)} item(s)).')
             except Exception as e:
                 traceback.print_exc()
                 self.finished.emit(False, str(e))

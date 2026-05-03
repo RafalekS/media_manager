@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QLabel, QPushButton,
     QTableView, QHeaderView, QLineEdit, QComboBox, QFrame,
     QCheckBox, QMessageBox, QDialog, QPlainTextEdit, QScrollArea,
-    QMenu, QStyledItemDelegate, QApplication,
+    QMenu, QStyledItemDelegate, QApplication, QFileDialog,
 )
 
 _KEY_ROLE   = Qt.ItemDataRole.UserRole       # stores metadata dict key on col-0 cell
@@ -322,9 +322,10 @@ class LibraryBrowser(QWidget):
         self._state_key    = f'browser_{plugin.media_type}'
         self._data         = []
         self._state_loaded = False
-        self._worker       = None
-        self._cover_loader = None
-        self._loading      = False
+        self._worker        = None
+        self._cover_loader  = None
+        self._scrape_worker = None
+        self._loading       = False
         self._deleted_keys = set()
         self._img_cache    = {}   # {url: QPixmap}
 
@@ -406,10 +407,13 @@ class LibraryBrowser(QWidget):
         self._table.setModel(self._model)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self._table.setSortingEnabled(False)
         self._table.doubleClicked.connect(self._open_edit_dialog)
         self._table.setWordWrap(wrap_saved)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_row_menu)
 
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -435,6 +439,21 @@ class LibraryBrowser(QWidget):
         self._btn_edit.setEnabled(False)
         self._btn_edit.clicked.connect(self._edit_selected)
         act.addWidget(self._btn_edit)
+
+        self._btn_scrape = QPushButton('Scrape')
+        self._btn_scrape.setEnabled(False)
+        self._btn_scrape.clicked.connect(self._scrape_selected)
+        act.addWidget(self._btn_scrape)
+
+        self._btn_assign_genre = QPushButton('Assign Genre')
+        self._btn_assign_genre.setEnabled(False)
+        self._btn_assign_genre.clicked.connect(self._assign_genre_selected)
+        act.addWidget(self._btn_assign_genre)
+
+        self._btn_move = QPushButton('Move To...')
+        self._btn_move.setEnabled(False)
+        self._btn_move.clicked.connect(self._move_selected)
+        act.addWidget(self._btn_move)
 
         act.addStretch()
 
@@ -680,6 +699,10 @@ class LibraryBrowser(QWidget):
         has_sel = bool(self._table.selectionModel().selectedRows())
         self._btn_delete.setEnabled(has_sel)
         self._btn_edit.setEnabled(has_sel)
+        scraping = bool(self._scrape_worker and self._scrape_worker.isRunning())
+        self._btn_scrape.setEnabled(has_sel and not scraping)
+        self._btn_assign_genre.setEnabled(has_sel)
+        self._btn_move.setEnabled(has_sel)
 
     def _edit_selected(self):
         rows = self._table.selectionModel().selectedRows()
@@ -850,6 +873,193 @@ class LibraryBrowser(QWidget):
             self._ui_state.set(key, val if val != 'All' else '')
         self._ui_state.save()
 
+    # ── Row context menu ──────────────────────────────────────────────
+    def _show_row_menu(self, pos):
+        if not self._table.indexAt(pos).isValid():
+            return
+        rows = self._table.selectionModel().selectedRows()
+        if not rows:
+            return
+        menu = QMenu(self)
+        if len(rows) == 1:
+            menu.addAction('Edit', self._edit_selected)
+            menu.addSeparator()
+        menu.addAction('Scrape', self._scrape_selected)
+        menu.addAction('Assign Genre...', self._assign_genre_selected)
+        menu.addAction('Move To...', self._move_selected)
+        menu.addSeparator()
+        menu.addAction('Delete', self._delete_selected)
+        menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    # ── Scrape ────────────────────────────────────────────────────────
+    def _scrape_selected(self):
+        rows = self._table.selectionModel().selectedRows()
+        if not rows:
+            return
+        if self._scrape_worker and self._scrape_worker.isRunning():
+            QMessageBox.warning(self, 'Busy', 'A scrape is already in progress.')
+            return
+
+        keys = []
+        for idx in rows:
+            key_item = self._model.item(idx.row(), 0)
+            if key_item:
+                key = key_item.data(_KEY_ROLE)
+                if key:
+                    keys.append(key)
+        if not keys:
+            return
+
+        from modules.gui.workers import ScrapeWorker
+        self._scrape_worker = ScrapeWorker(self._lib_config, self._plugin, None, keys)
+        self._scrape_worker.finished.connect(self._on_scrape_finished)
+        self._btn_scrape.setEnabled(False)
+        self._lbl_status.setText(f'Scraping {len(keys)} item(s)...')
+        self._scrape_worker.start()
+
+    def _on_scrape_finished(self, ok, msg):
+        self._lbl_status.setText(msg)
+        has_sel = bool(self._table.selectionModel().selectedRows())
+        self._btn_scrape.setEnabled(has_sel)
+        self.load_data()
+
+    # ── Assign Genre ──────────────────────────────────────────────────
+    def _assign_genre_selected(self):
+        rows = self._table.selectionModel().selectedRows()
+        if not rows:
+            return
+
+        genres = sorted({item.get('genre', '') for item in self._data if item.get('genre')})
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle('Assign Genre')
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        dlg.resize(320, 110)
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel(f'Assign genre to {len(rows)} selected item(s):'))
+        combo = QComboBox()
+        combo.setEditable(True)
+        for g in genres:
+            combo.addItem(g)
+        layout.addWidget(combo)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_ok = QPushButton('OK')
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(dlg.accept)
+        btn_cancel = QPushButton('Cancel')
+        btn_cancel.setObjectName('btn_secondary')
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_genre = combo.currentText().strip()
+        if not new_genre:
+            return
+
+        try:
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.metadata_file))
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Could not open DB:\n{e}')
+            return
+
+        updated = 0
+        for idx in rows:
+            key_item = self._model.item(idx.row(), 0)
+            if not key_item:
+                continue
+            meta_key = key_item.data(_KEY_ROLE)
+            if not meta_key:
+                continue
+            item = db.get_item(meta_key)
+            if item is None:
+                continue
+            item['genre'] = new_genre
+            db.set_item(meta_key, item)
+            updated += 1
+
+        self._lbl_status.setText(f'Genre assigned to {updated} item(s) — click Refresh')
+
+    # ── Move To ───────────────────────────────────────────────────────
+    def _move_selected(self):
+        rows = self._table.selectionModel().selectedRows()
+        if not rows:
+            return
+
+        new_parent = QFileDialog.getExistingDirectory(
+            self, 'Select new parent folder (genre folder)',
+            '', QFileDialog.Option.ShowDirsOnly,
+        )
+        if not new_parent:
+            return
+
+        to_move = []
+        for idx in rows:
+            key_item = self._model.item(idx.row(), 0)
+            if not key_item:
+                continue
+            meta_key  = key_item.data(_KEY_ROLE)
+            item_data = next((d for d in self._data if d.get('_key') == meta_key), None)
+            if not item_data:
+                continue
+            full_path = item_data.get('full_path', '')
+            if not full_path:
+                continue
+            src = Path(full_path)
+            dst = Path(new_parent) / src.name
+            to_move.append((meta_key, src, dst))
+
+        if not to_move:
+            QMessageBox.warning(self, 'Move', 'No selected items have a stored path.')
+            return
+
+        preview = '\n'.join(f'  {src.name}' for _, src, _ in to_move[:10])
+        if len(to_move) > 10:
+            preview += f'\n  … and {len(to_move) - 10} more'
+        reply = QMessageBox.question(
+            self, 'Confirm Move',
+            f'Move {len(to_move)} item(s) to:\n{new_parent}\n\n{preview}',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        import shutil
+        try:
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.metadata_file))
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Could not open DB:\n{e}')
+            return
+
+        new_genre = Path(new_parent).name
+        moved  = 0
+        errors = []
+        for meta_key, src, dst in to_move:
+            try:
+                shutil.move(str(src), str(dst))
+                item = db.get_item(meta_key) or {}
+                item['full_path'] = str(dst)
+                item['genre']     = new_genre
+                db.set_item(meta_key, item)
+                moved += 1
+            except Exception as e:
+                errors.append(f'{src.name}: {e}')
+
+        if errors:
+            QMessageBox.warning(
+                self, 'Some moves failed',
+                f'{moved} moved, {len(errors)} failed:\n' + '\n'.join(errors[:5]),
+            )
+
+        self._lbl_status.setText(f'Moved {moved} item(s) — refreshing…')
+        self.load_data()
+
+    # ─────────────────────────────────────────────────────────────────
     def save_state(self):
         self._debounce.stop()
         if self._state_loaded:
@@ -864,6 +1074,9 @@ class LibraryBrowser(QWidget):
         if self._cover_loader and self._cover_loader.isRunning():
             self._cover_loader.request_stop()
             self._cover_loader.wait(2000)
+        if self._scrape_worker and self._scrape_worker.isRunning():
+            self._scrape_worker.request_stop()
+            self._scrape_worker.wait(2000)
 
     def hideEvent(self, event):
         self._debounce.stop()
