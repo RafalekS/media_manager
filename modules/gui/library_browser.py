@@ -699,8 +699,7 @@ class LibraryBrowser(QWidget):
         has_sel = bool(self._table.selectionModel().selectedRows())
         self._btn_delete.setEnabled(has_sel)
         self._btn_edit.setEnabled(has_sel)
-        scraping = bool(self._scrape_worker and self._scrape_worker.isRunning())
-        self._btn_scrape.setEnabled(has_sel and not scraping)
+        self._btn_scrape.setEnabled(has_sel)
         self._btn_assign_genre.setEnabled(has_sel)
         self._btn_move.setEnabled(has_sel)
 
@@ -896,31 +895,23 @@ class LibraryBrowser(QWidget):
         rows = self._table.selectionModel().selectedRows()
         if not rows:
             return
-        if self._scrape_worker and self._scrape_worker.isRunning():
-            QMessageBox.warning(self, 'Busy', 'A scrape is already in progress.')
-            return
 
-        keys = []
+        items = []
         for idx in rows:
             key_item = self._model.item(idx.row(), 0)
-            if key_item:
-                key = key_item.data(_KEY_ROLE)
-                if key:
-                    keys.append(key)
-        if not keys:
+            if not key_item:
+                continue
+            meta_key  = key_item.data(_KEY_ROLE)
+            item_data = next((d for d in self._data if d.get('_key') == meta_key), None)
+            if item_data:
+                items.append(item_data)
+
+        if not items:
             return
 
-        from modules.gui.workers import ScrapeWorker
-        self._scrape_worker = ScrapeWorker(self._lib_config, self._plugin, None, keys)
-        self._scrape_worker.finished.connect(self._on_scrape_finished)
-        self._btn_scrape.setEnabled(False)
-        self._lbl_status.setText(f'Scraping {len(keys)} item(s)...')
-        self._scrape_worker.start()
-
-    def _on_scrape_finished(self, ok, msg):
-        self._lbl_status.setText(msg)
-        has_sel = bool(self._table.selectionModel().selectedRows())
-        self._btn_scrape.setEnabled(has_sel)
+        from modules.gui.scrape_dialog import ScrapeDialog
+        dlg = ScrapeDialog(items, self._lib_config, self._plugin, parent=self.window())
+        dlg.exec()
         self.load_data()
 
     # ── Assign Genre ──────────────────────────────────────────────────
@@ -934,11 +925,12 @@ class LibraryBrowser(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle('Assign Genre')
         dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
-        dlg.resize(320, 110)
+        dlg.resize(340, 120)
         layout = QVBoxLayout(dlg)
         layout.addWidget(QLabel(f'Assign genre to {len(rows)} selected item(s):'))
         combo = QComboBox()
         combo.setEditable(True)
+        combo.setPlaceholderText('Select or type a genre…')
         for g in genres:
             combo.addItem(g)
         layout.addWidget(combo)
@@ -958,6 +950,7 @@ class LibraryBrowser(QWidget):
             return
         new_genre = combo.currentText().strip()
         if not new_genre:
+            QMessageBox.warning(self, 'Assign Genre', 'No genre entered.')
             return
 
         try:
@@ -968,6 +961,7 @@ class LibraryBrowser(QWidget):
             return
 
         updated = 0
+        missing = []
         for idx in rows:
             key_item = self._model.item(idx.row(), 0)
             if not key_item:
@@ -977,12 +971,27 @@ class LibraryBrowser(QWidget):
                 continue
             item = db.get_item(meta_key)
             if item is None:
+                missing.append(meta_key)
                 continue
             item['genre'] = new_genre
             db.set_item(meta_key, item)
             updated += 1
 
-        self._lbl_status.setText(f'Genre assigned to {updated} item(s) — click Refresh')
+        if missing:
+            QMessageBox.warning(
+                self, 'Assign Genre',
+                f'{updated} updated.\n'
+                f'{len(missing)} item(s) not found in DB:\n' +
+                '\n'.join(missing[:5]),
+            )
+        else:
+            QMessageBox.information(
+                self, 'Assign Genre',
+                f"Genre '{new_genre}' assigned to {updated} item(s).\n"
+                'Click Refresh to update the view.',
+            )
+        if updated:
+            self.load_data()
 
     # ── Move To ───────────────────────────────────────────────────────
     def _move_selected(self):
@@ -990,9 +999,17 @@ class LibraryBrowser(QWidget):
         if not rows:
             return
 
+        # Start the folder picker at the first selected item's parent directory
+        first_path = next(
+            (d.get('full_path', '') for d in self._data
+             if d.get('_key') == self._model.item(rows[0].row(), 0).data(_KEY_ROLE)),
+            '',
+        )
+        start_dir = str(Path(first_path).parent) if first_path else ''
+
         new_parent = QFileDialog.getExistingDirectory(
             self, 'Select new parent folder (genre folder)',
-            '', QFileDialog.Option.ShowDirsOnly,
+            start_dir, QFileDialog.Option.ShowDirsOnly,
         )
         if not new_parent:
             return
