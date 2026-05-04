@@ -268,8 +268,8 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
                     print(f'[{i}/{total}] Retrying: {search_name}')
 
                     try:
-                        from modules.core.base_metadata_processor import _collect_candidates
-                        candidates = _collect_candidates(primary, supplements, search_name)
+                        from modules.core.base_metadata_processor import _collect_all_candidates
+                        candidates = _collect_all_candidates(primary, supplements, search_name)
                     except Exception as e:
                         print(f'  Error: {e}')
                         candidates = []

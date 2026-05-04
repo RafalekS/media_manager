@@ -123,7 +123,7 @@ class IGDBProvider(MetadataProvider):
         if isinstance(cover, dict):
             cover_image_id = cover.get('image_id', '')
         cover_url = (
-            f'//images.igdb.com/igdb/image/upload/t_cover_big/{cover_image_id}.jpg'
+            f'https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_image_id}.jpg'
             if cover_image_id else ''
         )
 

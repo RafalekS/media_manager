@@ -227,6 +227,26 @@ def _collect_candidates(primary, supplements, query: str) -> list:
     return []
 
 
+def _collect_all_candidates(primary, supplements, query: str) -> list:
+    """Query ALL providers and combine — used by interactive scrape so the user
+    sees every match from every selected source, not just the first that hits."""
+    candidates = []
+    for prov in [primary] + [s for s in (supplements or []) if s is not None]:
+        prov_name = type(prov).__name__.replace('Provider', '')
+        try:
+            count = 0
+            for raw in prov.search(query):
+                extracted = prov.extract(raw)
+                if extracted and extracted.get('name'):
+                    extracted['provider_source'] = prov_name
+                    candidates.append(extracted)
+                    count += 1
+            print(f'  [{prov_name}] {count} result(s)')
+        except Exception as e:
+            print(f'  [{prov_name}] Error: {e}')
+    return candidates
+
+
 def _merge_supplement(primary: dict, supplement: dict):
     """Fill missing fields in primary dict from supplement (in-place)."""
     for key in ('description', 'cover_url', 'genre', 'genres', 'rating', 'year', 'website_url'):

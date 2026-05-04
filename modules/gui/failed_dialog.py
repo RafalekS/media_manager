@@ -33,6 +33,7 @@ class _PickResultDialog(QDialog):
         self.skip_all         = False
         self._candidates      = candidates
         self._cover_url_shown = ''
+        self._current_url     = ''
         self._nam             = QNetworkAccessManager(self)
 
         self.setWindowTitle(f'Pick match — {query}')
@@ -96,6 +97,11 @@ class _PickResultDialog(QDialog):
 
         # ── Buttons ────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
+        self._btn_open = QPushButton('Open in Browser')
+        self._btn_open.setObjectName('btn_secondary')
+        self._btn_open.setEnabled(False)
+        self._btn_open.clicked.connect(self._open_in_browser)
+        btn_row.addWidget(self._btn_open)
         btn_row.addStretch()
         btn_pick = QPushButton('Pick Selected')
         btn_pick.setDefault(True)
@@ -121,6 +127,11 @@ class _PickResultDialog(QDialog):
             self._show_detail(self._candidates[row])
 
     def _show_detail(self, result: dict):
+        self._current_url = (
+            str(result.get('provider_url') or result.get('website_url') or '').strip()
+        )
+        self._btn_open.setEnabled(bool(self._current_url))
+
         lines = []
         for field, label in [
             ('name',            'Name'),
@@ -131,6 +142,7 @@ class _PickResultDialog(QDialog):
             ('platform',        'Platform'),
             ('rating',          'Rating'),
             ('provider_source', 'Source'),
+            ('provider_url',    'URL'),
         ]:
             val = result.get(field)
             if val:
@@ -178,6 +190,12 @@ class _PickResultDialog(QDialog):
             self._cover_lbl.setText('No cover')
 
     # ── Actions ────────────────────────────────────────────────────────
+
+    def _open_in_browser(self):
+        url = getattr(self, '_current_url', '')
+        if url:
+            import webbrowser
+            webbrowser.open(url)
 
     def _pick(self):
         item = self._list.currentItem()
