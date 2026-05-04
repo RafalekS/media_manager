@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMessageBox, QSplitter, QWidget, QPlainTextEdit, QProgressBar,
-    QDialogButtonBox,
+    QDialogButtonBox, QCheckBox,
 )
 
 
@@ -21,6 +21,7 @@ class ScrapeDialog(QDialog):
     Populates from selection, lets you edit the search query per row,
     runs MetadataRetryWorker, shows _PickResultDialog for multi-candidates,
     and only saves on explicit "Save Found" click.
+    Auto-starts scrape on open.
     """
 
     _COL_FOLDER  = 0
@@ -40,12 +41,14 @@ class ScrapeDialog(QDialog):
         self._worker           = None
         self._finished_workers = []
         self._pending_results  = {}   # key -> result dict
+        self._provider_checks  = {}   # provider_name -> QCheckBox
 
         self.setWindowTitle(f'Scrape — {plugin.name}')
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
-        self.resize(880, 560)
+        self.resize(920, 600)
         self._setup_ui()
         self._populate_table()
+        QTimer.singleShot(100, self._start_scrape)
 
     # ── UI ────────────────────────────────────────────────────────────
 
@@ -65,6 +68,11 @@ class ScrapeDialog(QDialog):
         info.setWordWrap(True)
         info.setProperty('role', 'muted')
         layout.addWidget(info)
+
+        # ── Provider checkboxes ────────────────────────────────────────
+        provider_row = self._build_provider_row()
+        if provider_row:
+            layout.addWidget(provider_row)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
 
@@ -151,6 +159,37 @@ class ScrapeDialog(QDialog):
         bar.addWidget(btn_box)
         layout.addLayout(bar)
 
+    def _build_provider_row(self) -> QWidget | None:
+        """Build a horizontal row of checkboxes for each configured provider."""
+        primary_name     = getattr(self._lib_config, 'primary_provider', '') or ''
+        supplement_names = list(getattr(self._lib_config, 'supplement_providers', []) or [])
+        all_providers    = (
+            [(primary_name, True)] +
+            [(n, False) for n in supplement_names if n]
+        )
+        if not any(n for n, _ in all_providers):
+            return None
+
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+
+        lbl = QLabel('Sources:')
+        lbl.setProperty('role', 'muted')
+        row.addWidget(lbl)
+
+        for name, is_primary in all_providers:
+            if not name:
+                continue
+            label = f'{name} (primary)' if is_primary else name
+            chk = QCheckBox(label)
+            chk.setChecked(True)
+            row.addWidget(chk)
+            self._provider_checks[name] = chk
+
+        row.addStretch()
+        return container
+
     def _populate_table(self):
         self._table.setRowCount(len(self._items))
         for row, item in enumerate(self._items):
@@ -181,12 +220,22 @@ class ScrapeDialog(QDialog):
             sti.setForeground(Qt.GlobalColor.gray)
             self._table.setItem(row, self._COL_STATUS, sti)
 
-        self._table.setColumnWidth(self._COL_FOLDER,  210)
-        self._table.setColumnWidth(self._COL_SEARCH,  200)
-        self._table.setColumnWidth(self._COL_CURRENT, 200)
-        self._table.setColumnWidth(self._COL_STATUS,  220)
+        self._table.setColumnWidth(self._COL_FOLDER,  200)
+        self._table.setColumnWidth(self._COL_SEARCH,  190)
+        self._table.setColumnWidth(self._COL_CURRENT, 190)
+        self._table.setColumnWidth(self._COL_STATUS,  310)
 
     # ── Scrape ────────────────────────────────────────────────────────
+
+    def _get_active_providers(self) -> list | None:
+        """Return list of checked provider names, or None to use all configured."""
+        if not self._provider_checks:
+            return None
+        active = [name for name, chk in self._provider_checks.items() if chk.isChecked()]
+        # If everything is checked or nothing is checked, let the worker use defaults
+        if len(active) == len(self._provider_checks) or not active:
+            return None
+        return active
 
     def _start_scrape(self):
         retry_items = []
@@ -220,7 +269,8 @@ class ScrapeDialog(QDialog):
 
         from modules.gui.workers import MetadataRetryWorker
         self._worker = MetadataRetryWorker(
-            self._lib_config, self._plugin, self._log_stream, retry_items
+            self._lib_config, self._plugin, self._log_stream, retry_items,
+            active_providers=self._get_active_providers(),
         )
         self._worker.item_result.connect(self._on_item_result)
         self._worker.finished.connect(self._on_scrape_done)
@@ -260,6 +310,10 @@ class ScrapeDialog(QDialog):
         self._pending_results.update(auto_results)
         self._append_log(f'\n[DONE] {message}\n')
 
+        # Update status with full details for auto-accepted results
+        for key, result in auto_results.items():
+            self._set_row_status_from_result(key, result)
+
         # Show pick dialog for each item with multiple candidates
         for key, candidates in multi_candidates.items():
             search_name = key
@@ -279,20 +333,38 @@ class ScrapeDialog(QDialog):
                 result['manual']        = False
                 self._pending_results[key] = result
                 self._append_log(f'  Picked: {result.get("name", "")}\n')
-                for row in range(self._table.rowCount()):
-                    search_item = self._table.item(row, self._COL_SEARCH)
-                    if search_item and search_item.data(Qt.ItemDataRole.UserRole) == key:
-                        sti = self._table.item(row, self._COL_STATUS)
-                        if sti:
-                            sti.setText(f'Picked: {result.get("name", "")}')
-                            sti.setForeground(Qt.GlobalColor.darkGreen)
-                        break
+                self._set_row_status_from_result(key, result)
             else:
                 self._append_log(f'  Skipped pick for: {search_name}\n')
 
         if self._pending_results:
             self._btn_save.setText(f'Save Found ({len(self._pending_results)})')
             self._btn_save.setVisible(True)
+
+    def _set_row_status_from_result(self, key: str, result: dict):
+        """Update the Status cell for the given key with full result details."""
+        name     = result.get('name', '')
+        year     = result.get('year', '')
+        genre    = result.get('genre', '')
+        provider = result.get('provider_source', '')
+
+        parts = [name]
+        if year:
+            parts.append(f'({year})')
+        if genre:
+            parts.append(f'[{genre}]')
+        if provider:
+            parts.append(f'via {provider}')
+        status_text = ' '.join(parts) if parts else 'Found'
+
+        for row in range(self._table.rowCount()):
+            search_item = self._table.item(row, self._COL_SEARCH)
+            if search_item and search_item.data(Qt.ItemDataRole.UserRole) == key:
+                sti = self._table.item(row, self._COL_STATUS)
+                if sti:
+                    sti.setText(f'✓ {status_text}')
+                    sti.setForeground(Qt.GlobalColor.darkGreen)
+                break
 
     # ── Save ──────────────────────────────────────────────────────────
 

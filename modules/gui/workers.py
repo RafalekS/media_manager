@@ -201,13 +201,15 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
     item_result = pyqtSignal(str, bool, str)         # key, found, display_name
     finished    = pyqtSignal(bool, str, dict, dict)  # success, message, auto_results, multi_candidates
 
-    def __init__(self, lib_config, plugin, stream, retry_items: list):
+    def __init__(self, lib_config, plugin, stream, retry_items: list,
+                 active_providers: list = None):
         _StoppableMixin.__init__(self)
         QThread.__init__(self)
-        self._lib_config   = lib_config
-        self._plugin       = plugin
-        self._stream       = stream
-        self._retry_items  = retry_items  # [{'key', 'search_name', 'original_name'}, ...]
+        self._lib_config      = lib_config
+        self._plugin          = plugin
+        self._stream          = stream
+        self._retry_items     = retry_items       # [{'key', 'search_name', 'original_name'}, ...]
+        self._active_providers = active_providers  # None = use all configured
 
     def run(self):
         with _redirect_stdout(self._stream):
@@ -228,10 +230,17 @@ class MetadataRetryWorker(_StoppableMixin, QThread):
                         print(f'[Retry] Cannot load provider {name!r}: {e}')
                         return None
 
-                primary = _build(self._lib_config.primary_provider)
+                if self._active_providers is not None:
+                    primary_name     = self._active_providers[0] if self._active_providers else ''
+                    supplement_names = self._active_providers[1:]
+                else:
+                    primary_name     = self._lib_config.primary_provider
+                    supplement_names = self._lib_config.supplement_providers
+
+                primary = _build(primary_name)
                 supplements = [
                     p for p in (
-                        _build(n) for n in self._lib_config.supplement_providers if n
+                        _build(n) for n in supplement_names if n
                     ) if p is not None
                 ]
 

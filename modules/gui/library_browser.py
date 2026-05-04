@@ -505,7 +505,7 @@ class LibraryBrowser(QWidget):
                 w.currentIndexChanged.connect(self._apply_filter)
             else:
                 w = QLineEdit()
-                w.setPlaceholderText('...')
+                w.setPlaceholderText('filter… or <empty>')
                 w.textChanged.connect(lambda _: self._filter_debounce.start())
 
             grid.addWidget(w, grow, gcol + 1)
@@ -640,6 +640,7 @@ class LibraryBrowser(QWidget):
         w.blockSignals(True)
         w.clear()
         w.addItem('All')
+        w.addItem('— Empty —')
         for g in genres:
             w.addItem(g)
         idx = w.findText(current)
@@ -834,8 +835,13 @@ class LibraryBrowser(QWidget):
                             else cell.text()).lower()
                 else:
                     text = ''
-                if pattern not in text:
+                # '— empty —' (combo) or '<empty>' (text field) match blank cells
+                if pattern in ('— empty —', '<empty>'):
+                    if text != '':
+                        visible = False
+                elif pattern not in text:
                     visible = False
+                if not visible:
                     break
             self._table.setRowHidden(row, not visible)
             if visible:
