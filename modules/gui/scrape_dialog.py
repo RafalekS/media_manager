@@ -28,14 +28,15 @@ class ScrapeDialog(QDialog):
     Nothing is saved until the user clicks Save Found.
     """
 
-    _COL_FOLDER   = 0
-    _COL_SEARCH   = 1
-    _COL_FOUND    = 2
-    _COL_YEAR     = 3
-    _COL_GENRE    = 4
-    _COL_RATING   = 5
-    _COL_PROVIDER = 6
-    _COL_STATUS   = 7
+    _COL_SAVE     = 0   # checkbox — user selects which results to save
+    _COL_FOLDER   = 1
+    _COL_SEARCH   = 2
+    _COL_FOUND    = 3
+    _COL_YEAR     = 4
+    _COL_GENRE    = 5
+    _COL_RATING   = 6
+    _COL_PROVIDER = 7
+    _COL_STATUS   = 8   # scrape outcome: ✓ found / ✗ not found / … pending
 
     def __init__(self, items: list, lib_config, plugin, parent=None):
         super().__init__(parent)
@@ -52,7 +53,7 @@ class ScrapeDialog(QDialog):
 
         self.setWindowTitle(f'Scrape — {plugin.name}')
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
-        self.resize(1120, 680)
+        self.resize(1150, 680)
         self._setup_ui()
         self._populate_table()
         QTimer.singleShot(100, self._start_scrape)
@@ -70,7 +71,7 @@ class ScrapeDialog(QDialog):
 
         info = QLabel(
             'Double-click Search Query to edit it, then click Re-search Selected. '
-            'Click any row to see the full result below. Nothing is saved until you click Save Found.'
+            'Tick the Save checkbox for each result you want to keep, then click Save Selected.'
         )
         info.setWordWrap(True)
         info.setProperty('role', 'muted')
@@ -85,10 +86,10 @@ class ScrapeDialog(QDialog):
 
         # ── Results table ─────────────────────────────────────────────
         self._table = QTableWidget()
-        self._table.setColumnCount(8)
+        self._table.setColumnCount(9)
         self._table.setHorizontalHeaderLabels([
-            'Folder Name', 'Search Query',
-            'Found Name', 'Year', 'Genre', 'Rating', 'Provider', 'St.',
+            'Save', 'Folder Name', 'Search Query',
+            'Found Name', 'Year', 'Genre', 'Rating', 'Provider', 'Status',
         ])
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -105,6 +106,7 @@ class ScrapeDialog(QDialog):
         self._table.currentCellChanged.connect(
             lambda row, _col, _prow, _pcol: self._on_row_selected(row)
         )
+        self._table.itemChanged.connect(self._on_item_changed)
         splitter.addWidget(self._table)
 
         # ── Detail pane ───────────────────────────────────────────────
@@ -158,8 +160,8 @@ class ScrapeDialog(QDialog):
         self._progress.setVisible(False)
         layout.addWidget(self._progress)
 
-        # ── Save Found ────────────────────────────────────────────────
-        self._btn_save = QPushButton('Save Found')
+        # ── Save Selected ─────────────────────────────────────────────
+        self._btn_save = QPushButton('Save Selected (0)')
         self._btn_save.setVisible(False)
         self._btn_save.clicked.connect(self._save_found)
         layout.addWidget(self._btn_save)
@@ -220,6 +222,7 @@ class ScrapeDialog(QDialog):
         return container
 
     def _populate_table(self):
+        self._table.blockSignals(True)
         self._table.setRowCount(len(self._items))
         for row, item in enumerate(self._items):
             folder_name = item.get('name', item.get('_key', ''))
@@ -230,6 +233,12 @@ class ScrapeDialog(QDialog):
                 it = QTableWidgetItem(text)
                 it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 return it
+
+            # Save checkbox
+            save_chk = QTableWidgetItem()
+            save_chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            save_chk.setCheckState(Qt.CheckState.Unchecked)
+            self._table.setItem(row, self._COL_SAVE, save_chk)
 
             self._table.setItem(row, self._COL_FOLDER, _ro(folder_name))
 
@@ -247,14 +256,16 @@ class ScrapeDialog(QDialog):
             sti.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._table.setItem(row, self._COL_STATUS, sti)
 
-        self._table.setColumnWidth(self._COL_FOLDER,   170)
-        self._table.setColumnWidth(self._COL_SEARCH,   170)
-        self._table.setColumnWidth(self._COL_FOUND,    210)
+        self._table.setColumnWidth(self._COL_SAVE,      36)
+        self._table.setColumnWidth(self._COL_FOLDER,   165)
+        self._table.setColumnWidth(self._COL_SEARCH,   165)
+        self._table.setColumnWidth(self._COL_FOUND,    205)
         self._table.setColumnWidth(self._COL_YEAR,      52)
         self._table.setColumnWidth(self._COL_GENRE,    130)
         self._table.setColumnWidth(self._COL_RATING,    55)
         self._table.setColumnWidth(self._COL_PROVIDER,  90)
-        self._table.setColumnWidth(self._COL_STATUS,    38)
+        self._table.setColumnWidth(self._COL_STATUS,    60)
+        self._table.blockSignals(False)
 
     # ── Scrape ────────────────────────────────────────────────────────
 
@@ -265,9 +276,10 @@ class ScrapeDialog(QDialog):
         return active if active else None
 
     def _collect_rows(self, rows=None) -> list:
-        """Build retry_items and reset status cells. rows=None means all rows."""
+        """Build retry_items and reset status/data cells. rows=None means all rows."""
         items = []
         row_range = rows if rows is not None else range(self._table.rowCount())
+        self._table.blockSignals(True)
         for row in row_range:
             si = self._table.item(row, self._COL_SEARCH)
             fi = self._table.item(row, self._COL_FOLDER)
@@ -277,7 +289,10 @@ class ScrapeDialog(QDialog):
             search_name = si.text().strip() or db_key
             orig        = fi.text() if fi else db_key
             items.append({'key': db_key, 'search_name': search_name, 'original_name': orig})
-            # Reset this row
+            # Uncheck and reset this row
+            save_chk = self._table.item(row, self._COL_SAVE)
+            if save_chk:
+                save_chk.setCheckState(Qt.CheckState.Unchecked)
             sti = self._table.item(row, self._COL_STATUS)
             if sti:
                 sti.setText('…')
@@ -287,11 +302,14 @@ class ScrapeDialog(QDialog):
                 cell = self._table.item(row, col)
                 if cell:
                     cell.setText('')
+        self._table.blockSignals(False)
         return items
 
     def _run_worker(self, retry_items: list):
-        self._pending_results = {}
-        self._btn_save.setVisible(False)
+        # Only remove the keys being re-scraped — preserve results for other rows
+        for item in retry_items:
+            self._pending_results.pop(item['key'], None)
+        self._update_save_btn()
         self._progress.setVisible(True)
         self._btn_start.setEnabled(False)
         self._btn_research.setEnabled(False)
@@ -344,10 +362,10 @@ class ScrapeDialog(QDialog):
                 sti = self._table.item(row, self._COL_STATUS)
                 if sti:
                     if found:
-                        sti.setText('✓')
+                        sti.setText('✓ found')
                         sti.setForeground(Qt.GlobalColor.darkGreen)
                     else:
-                        sti.setText('✗')
+                        sti.setText('✗ none')
                         sti.setForeground(Qt.GlobalColor.red)
                 break
 
@@ -398,20 +416,20 @@ class ScrapeDialog(QDialog):
                     if si and si.data(Qt.ItemDataRole.UserRole) == key:
                         sti = self._table.item(row, self._COL_STATUS)
                         if sti:
-                            sti.setText('–')
+                            sti.setText('– skipped')
                             sti.setForeground(Qt.GlobalColor.darkYellow)
                         break
 
-        if self._pending_results:
-            self._btn_save.setText(f'Save Found ({len(self._pending_results)})')
-            self._btn_save.setVisible(True)
+        self._update_save_btn()
 
     def _set_row_result(self, key: str, result: dict):
-        """Fill Found Name / Year / Genre / Rating / Provider columns for this key."""
+        """Fill data columns and auto-check the Save checkbox for this key's row."""
         for row in range(self._table.rowCount()):
             si = self._table.item(row, self._COL_SEARCH)
             if not si or si.data(Qt.ItemDataRole.UserRole) != key:
                 continue
+
+            self._table.blockSignals(True)
 
             def _s(col, field):
                 cell = self._table.item(row, col)
@@ -426,8 +444,14 @@ class ScrapeDialog(QDialog):
 
             sti = self._table.item(row, self._COL_STATUS)
             if sti:
-                sti.setText('✓')
+                sti.setText('✓ found')
                 sti.setForeground(Qt.GlobalColor.darkGreen)
+
+            save_chk = self._table.item(row, self._COL_SAVE)
+            if save_chk:
+                save_chk.setCheckState(Qt.CheckState.Checked)
+
+            self._table.blockSignals(False)
             break
 
     # ── Detail pane ───────────────────────────────────────────────────
@@ -523,24 +547,68 @@ class ScrapeDialog(QDialog):
 
     # ── Save ──────────────────────────────────────────────────────────
 
+    def _on_item_changed(self, item: QTableWidgetItem):
+        if item.column() == self._COL_SAVE:
+            self._update_save_btn()
+
+    def _update_save_btn(self):
+        count = 0
+        for row in range(self._table.rowCount()):
+            chk = self._table.item(row, self._COL_SAVE)
+            si  = self._table.item(row, self._COL_SEARCH)
+            if (chk and chk.checkState() == Qt.CheckState.Checked and si):
+                key = si.data(Qt.ItemDataRole.UserRole)
+                if key in self._pending_results:
+                    count += 1
+        if count > 0:
+            self._btn_save.setText(f'Save Selected ({count})')
+            self._btn_save.setVisible(True)
+        else:
+            self._btn_save.setVisible(False)
+
     def _save_found(self):
-        if not self._pending_results:
+        to_save = {}
+        for row in range(self._table.rowCount()):
+            chk = self._table.item(row, self._COL_SAVE)
+            si  = self._table.item(row, self._COL_SEARCH)
+            if (chk and chk.checkState() == Qt.CheckState.Checked and si):
+                key = si.data(Qt.ItemDataRole.UserRole)
+                if key in self._pending_results:
+                    to_save[key] = self._pending_results[key]
+
+        if not to_save:
             return
+
         try:
             from modules.core.db import LibraryDB
             db = LibraryDB(Path(self._lib_config.metadata_file))
-            for key, item in self._pending_results.items():
+            for key, item in to_save.items():
                 if not item.get('full_path'):
                     existing = db.get_item(key) or {}
                     if existing.get('full_path'):
                         item['full_path'] = existing['full_path']
                 db.set_item(key, item)
-            count = len(self._pending_results)
-            self._pending_results = {}
-            self._btn_save.setVisible(False)
+
+            # Remove saved items from pending and uncheck their rows
+            self._table.blockSignals(True)
+            for key in to_save:
+                self._pending_results.pop(key, None)
+                for row in range(self._table.rowCount()):
+                    si = self._table.item(row, self._COL_SEARCH)
+                    if si and si.data(Qt.ItemDataRole.UserRole) == key:
+                        chk = self._table.item(row, self._COL_SAVE)
+                        if chk:
+                            chk.setCheckState(Qt.CheckState.Unchecked)
+                        sti = self._table.item(row, self._COL_STATUS)
+                        if sti:
+                            sti.setText('✓ saved')
+                        break
+            self._table.blockSignals(False)
+
+            self._update_save_btn()
             QMessageBox.information(
                 self, 'Saved',
-                f'{count} item(s) saved.\n'
+                f'{len(to_save)} item(s) saved.\n'
                 'Click Refresh in the library browser to see changes.',
             )
         except Exception as e:
