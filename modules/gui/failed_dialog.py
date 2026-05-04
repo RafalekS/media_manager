@@ -8,12 +8,12 @@ Shows a table of items that didn't match and allows:
 """
 
 import json
-import threading
 import textwrap
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QEvent, QTimer
+from PyQt6.QtCore import Qt, QEvent, QTimer, QUrl
 from PyQt6.QtGui import QTextCursor, QFont, QAction, QImage, QPixmap
+from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
@@ -33,6 +33,7 @@ class _PickResultDialog(QDialog):
         self.skip_all         = False
         self._candidates      = candidates
         self._cover_url_shown = ''
+        self._nam             = QNetworkAccessManager(self)
 
         self.setWindowTitle(f'Pick match — {query}')
         self.resize(960, 540)
@@ -152,19 +153,15 @@ class _PickResultDialog(QDialog):
             self._cover_lbl.setText('No cover')
 
     def _fetch_cover(self, url: str):
-        def _load():
-            try:
-                import requests
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-                r = requests.get(url, timeout=8, headers=headers)
-                if r.ok and url == self._cover_url_shown:
-                    data = r.content
-                    QTimer.singleShot(0, lambda: self._apply_cover(data, url))
-            except Exception:
-                pass
-        threading.Thread(target=_load, daemon=True).start()
+        req = QNetworkRequest(QUrl(url))
+        req.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
+                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
+        reply = self._nam.get(req)
+        reply.finished.connect(lambda: self._on_cover_reply(reply, url))
 
-    def _apply_cover(self, data: bytes, url: str):
+    def _on_cover_reply(self, reply, url: str):
+        data = bytes(reply.readAll())
+        reply.deleteLater()
         if url != self._cover_url_shown:
             return
         img = QImage()
