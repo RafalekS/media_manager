@@ -1,12 +1,14 @@
 """
 Scrape dialog — re-query providers for selected library items.
-Shows results for review before saving. NO auto-save.
+Shows full metadata for every result before saving. NO auto-save.
 """
 
+import textwrap
+import threading
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QTextCursor, QFont
+from PyQt6.QtGui import QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
@@ -18,34 +20,37 @@ from PyQt6.QtWidgets import (
 class ScrapeDialog(QDialog):
     """
     Review dialog for re-scraping library items.
-    Populates from selection, lets you edit the search query per row,
-    runs MetadataRetryWorker, shows _PickResultDialog for multi-candidates,
-    and only saves on explicit "Save Found" click.
-    Auto-starts scrape on open.
+
+    Layout:
+      - Top: results table with columns for every key metadata field
+      - Bottom: detail pane — cover thumbnail + full field dump for selected row
+    Auto-starts scrape on open; Re-search Selected re-runs chosen rows.
+    Nothing is saved until the user clicks Save Found.
     """
 
-    _COL_FOLDER  = 0
-    _COL_SEARCH  = 1
-    _COL_CURRENT = 2
-    _COL_STATUS  = 3
+    _COL_FOLDER   = 0
+    _COL_SEARCH   = 1
+    _COL_FOUND    = 2
+    _COL_YEAR     = 3
+    _COL_GENRE    = 4
+    _COL_RATING   = 5
+    _COL_PROVIDER = 6
+    _COL_STATUS   = 7
 
     def __init__(self, items: list, lib_config, plugin, parent=None):
-        """
-        items: list of dicts from LibraryBrowser._data.
-               Each dict has: _key, name, display_name, full_path, ...
-        """
         super().__init__(parent)
         self._lib_config       = lib_config
         self._plugin           = plugin
         self._items            = items
         self._worker           = None
         self._finished_workers = []
-        self._pending_results  = {}   # key -> result dict
+        self._pending_results  = {}   # key -> full result dict
         self._provider_checks  = {}   # provider_name -> QCheckBox
+        self._cover_url_shown  = ''   # tracks which cover is currently in the pane
 
         self.setWindowTitle(f'Scrape — {plugin.name}')
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
-        self.resize(920, 600)
+        self.resize(1120, 680)
         self._setup_ui()
         self._populate_table()
         QTimer.singleShot(100, self._start_scrape)
@@ -62,8 +67,8 @@ class ScrapeDialog(QDialog):
         layout.addWidget(lbl)
 
         info = QLabel(
-            'Edit the Search Query column if needed, then click Start Scrape. '
-            'Nothing is saved until you click Save Found.'
+            'Double-click Search Query to edit it, then click Re-search Selected. '
+            'Click any row to see the full result below. Nothing is saved until you click Save Found.'
         )
         info.setWordWrap(True)
         info.setProperty('role', 'muted')
@@ -76,20 +81,18 @@ class ScrapeDialog(QDialog):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # ── Table ─────────────────────────────────────────────────────
-        table_w = QWidget()
-        table_lay = QVBoxLayout(table_w)
-        table_lay.setContentsMargins(0, 0, 0, 0)
-
+        # ── Results table ─────────────────────────────────────────────
         self._table = QTableWidget()
-        self._table.setColumnCount(4)
-        self._table.setHorizontalHeaderLabels(
-            ['Folder Name', 'Search Query', 'Current Match', 'Status']
-        )
+        self._table.setColumnCount(8)
+        self._table.setHorizontalHeaderLabels([
+            'Folder Name', 'Search Query',
+            'Found Name', 'Year', 'Genre', 'Rating', 'Provider', 'St.',
+        ])
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         hdr.setSectionsMovable(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setAlternatingRowColors(True)
         self._table.setSortingEnabled(False)
         self._table.verticalHeader().setVisible(False)
@@ -97,34 +100,47 @@ class ScrapeDialog(QDialog):
             QAbstractItemView.EditTrigger.DoubleClicked |
             QAbstractItemView.EditTrigger.EditKeyPressed
         )
+        self._table.currentRowChanged.connect(self._on_row_selected)
+        splitter.addWidget(self._table)
 
-        table_lay.addWidget(self._table)
-        splitter.addWidget(table_w)
+        # ── Detail pane ───────────────────────────────────────────────
+        detail_w = QWidget()
+        detail_lay = QVBoxLayout(detail_w)
+        detail_lay.setContentsMargins(0, 4, 0, 0)
+        detail_lay.setSpacing(4)
 
-        # ── Log ───────────────────────────────────────────────────────
-        log_w = QWidget()
-        log_lay = QVBoxLayout(log_w)
-        log_lay.setContentsMargins(0, 0, 0, 0)
-        log_lay.setSpacing(4)
+        det_hdr = QHBoxLayout()
+        det_lbl = QLabel('Result Preview  (select a row)')
+        det_lbl.setProperty('role', 'muted')
+        det_hdr.addWidget(det_lbl)
+        det_hdr.addStretch()
+        detail_lay.addLayout(det_hdr)
 
-        log_hdr = QHBoxLayout()
-        log_lbl = QLabel('Scrape Log')
-        log_lbl.setProperty('role', 'muted')
-        log_hdr.addWidget(log_lbl)
-        btn_clear = QPushButton('Clear')
-        btn_clear.setObjectName('btn_secondary')
-        btn_clear.clicked.connect(lambda: self._log.clear())
-        log_hdr.addWidget(btn_clear)
-        log_hdr.addStretch()
-        log_lay.addLayout(log_hdr)
+        det_split = QSplitter(Qt.Orientation.Horizontal)
 
-        self._log = QPlainTextEdit()
-        self._log.setReadOnly(True)
-        self._log.setFont(QFont('Consolas', 9))
-        log_lay.addWidget(self._log)
-        splitter.addWidget(log_w)
+        self._cover_lbl = QLabel('No cover')
+        self._cover_lbl.setFixedWidth(130)
+        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        self._cover_lbl.setStyleSheet(
+            'QLabel { background: #1e1e2e; border-radius: 4px; '
+            'color: #555; padding: 4px; font-size: 9px; }'
+        )
+        self._cover_lbl.setWordWrap(True)
+        det_split.addWidget(self._cover_lbl)
 
-        splitter.setSizes([370, 150])
+        self._detail_view = QPlainTextEdit()
+        self._detail_view.setReadOnly(True)
+        self._detail_view.setFont(QFont('Consolas', 9))
+        self._detail_view.setPlaceholderText(
+            'Click a row to preview the full scraped result here…'
+        )
+        det_split.addWidget(self._detail_view)
+        det_split.setSizes([130, 860])
+
+        detail_lay.addWidget(det_split, 1)
+        splitter.addWidget(detail_w)
+
+        splitter.setSizes([360, 240])
         layout.addWidget(splitter, 1)
 
         # ── Progress ──────────────────────────────────────────────────
@@ -133,7 +149,7 @@ class ScrapeDialog(QDialog):
         self._progress.setVisible(False)
         layout.addWidget(self._progress)
 
-        # ── Save Found — hidden until results arrive ───────────────────
+        # ── Save Found ────────────────────────────────────────────────
         self._btn_save = QPushButton('Save Found')
         self._btn_save.setVisible(False)
         self._btn_save.clicked.connect(self._save_found)
@@ -145,6 +161,11 @@ class ScrapeDialog(QDialog):
         self._btn_start = QPushButton('Start Scrape')
         self._btn_start.clicked.connect(self._start_scrape)
         bar.addWidget(self._btn_start)
+
+        self._btn_research = QPushButton('Re-search Selected')
+        self._btn_research.setObjectName('btn_secondary')
+        self._btn_research.clicked.connect(self._research_selected)
+        bar.addWidget(self._btn_research)
 
         self._btn_stop = QPushButton('Stop')
         self._btn_stop.setObjectName('btn_secondary')
@@ -160,33 +181,25 @@ class ScrapeDialog(QDialog):
         layout.addLayout(bar)
 
     def _build_provider_row(self) -> QWidget | None:
-        """Build a horizontal row of checkboxes for each configured provider."""
         primary_name     = getattr(self._lib_config, 'primary_provider', '') or ''
         supplement_names = list(getattr(self._lib_config, 'supplement_providers', []) or [])
-        all_providers    = (
-            [(primary_name, True)] +
-            [(n, False) for n in supplement_names if n]
-        )
+        all_providers    = [(primary_name, True)] + [(n, False) for n in supplement_names if n]
         if not any(n for n, _ in all_providers):
             return None
 
         container = QWidget()
         row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
-
         lbl = QLabel('Sources:')
         lbl.setProperty('role', 'muted')
         row.addWidget(lbl)
-
         for name, is_primary in all_providers:
             if not name:
                 continue
-            label = f'{name} (primary)' if is_primary else name
-            chk = QCheckBox(label)
+            chk = QCheckBox(f'{name} (primary)' if is_primary else name)
             chk.setChecked(True)
             row.addWidget(chk)
             self._provider_checks[name] = chk
-
         row.addStretch()
         return container
 
@@ -195,77 +208,83 @@ class ScrapeDialog(QDialog):
         for row, item in enumerate(self._items):
             folder_name = item.get('name', item.get('_key', ''))
             search_q    = self._plugin.clean_name(folder_name) if folder_name else item.get('_key', '')
-            current     = item.get('display_name', '')
             db_key      = item.get('_key', '')
 
-            # Folder (read-only)
-            fi = QTableWidgetItem(folder_name)
-            fi.setFlags(fi.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._table.setItem(row, self._COL_FOLDER, fi)
+            def _ro(text=''):
+                it = QTableWidgetItem(text)
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                return it
 
-            # Search query (editable) — stores DB key in UserRole
+            self._table.setItem(row, self._COL_FOLDER, _ro(folder_name))
+
             si = QTableWidgetItem(search_q)
             si.setData(Qt.ItemDataRole.UserRole, db_key)
-            si.setToolTip('Double-click to edit before scraping')
+            si.setToolTip('Double-click to edit, then click Re-search Selected')
             self._table.setItem(row, self._COL_SEARCH, si)
 
-            # Current match (read-only)
-            ci = QTableWidgetItem(current)
-            ci.setFlags(ci.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._table.setItem(row, self._COL_CURRENT, ci)
+            for col in (self._COL_FOUND, self._COL_YEAR, self._COL_GENRE,
+                        self._COL_RATING, self._COL_PROVIDER):
+                self._table.setItem(row, col, _ro())
 
-            # Status (read-only)
-            sti = QTableWidgetItem('Pending')
-            sti.setFlags(sti.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            sti = _ro('…')
             sti.setForeground(Qt.GlobalColor.gray)
+            sti.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._table.setItem(row, self._COL_STATUS, sti)
 
-        self._table.setColumnWidth(self._COL_FOLDER,  200)
-        self._table.setColumnWidth(self._COL_SEARCH,  190)
-        self._table.setColumnWidth(self._COL_CURRENT, 190)
-        self._table.setColumnWidth(self._COL_STATUS,  310)
+        self._table.setColumnWidth(self._COL_FOLDER,   170)
+        self._table.setColumnWidth(self._COL_SEARCH,   170)
+        self._table.setColumnWidth(self._COL_FOUND,    210)
+        self._table.setColumnWidth(self._COL_YEAR,      52)
+        self._table.setColumnWidth(self._COL_GENRE,    130)
+        self._table.setColumnWidth(self._COL_RATING,    55)
+        self._table.setColumnWidth(self._COL_PROVIDER,  90)
+        self._table.setColumnWidth(self._COL_STATUS,    38)
 
     # ── Scrape ────────────────────────────────────────────────────────
 
     def _get_active_providers(self) -> list | None:
-        """Return list of checked provider names, or None to use all configured."""
         if not self._provider_checks:
             return None
-        active = [name for name, chk in self._provider_checks.items() if chk.isChecked()]
-        # If everything is checked or nothing is checked, let the worker use defaults
+        active = [n for n, chk in self._provider_checks.items() if chk.isChecked()]
         if len(active) == len(self._provider_checks) or not active:
             return None
         return active
 
-    def _start_scrape(self):
-        retry_items = []
-        for row in range(self._table.rowCount()):
-            search_item = self._table.item(row, self._COL_SEARCH)
-            folder_item = self._table.item(row, self._COL_FOLDER)
-            if not search_item:
+    def _collect_rows(self, rows=None) -> list:
+        """Build retry_items and reset status cells. rows=None means all rows."""
+        items = []
+        row_range = rows if rows is not None else range(self._table.rowCount())
+        for row in row_range:
+            si = self._table.item(row, self._COL_SEARCH)
+            fi = self._table.item(row, self._COL_FOLDER)
+            if not si:
                 continue
-            db_key      = search_item.data(Qt.ItemDataRole.UserRole) or ''
-            search_name = search_item.text().strip() or db_key
-            orig        = folder_item.text() if folder_item else db_key
-            retry_items.append({
-                'key':           db_key,
-                'search_name':   search_name,
-                'original_name': orig,
-            })
+            db_key      = si.data(Qt.ItemDataRole.UserRole) or ''
+            search_name = si.text().strip() or db_key
+            orig        = fi.text() if fi else db_key
+            items.append({'key': db_key, 'search_name': search_name, 'original_name': orig})
+            # Reset this row
             sti = self._table.item(row, self._COL_STATUS)
             if sti:
-                sti.setText('...')
+                sti.setText('…')
                 sti.setForeground(Qt.GlobalColor.gray)
+            for col in (self._COL_FOUND, self._COL_YEAR, self._COL_GENRE,
+                        self._COL_RATING, self._COL_PROVIDER):
+                cell = self._table.item(row, col)
+                if cell:
+                    cell.setText('')
+        return items
 
-        if not retry_items:
-            return
-
-        self._log.clear()
+    def _run_worker(self, retry_items: list):
         self._pending_results = {}
         self._btn_save.setVisible(False)
         self._progress.setVisible(True)
         self._btn_start.setEnabled(False)
+        self._btn_research.setEnabled(False)
         self._btn_stop.setEnabled(True)
+        self._detail_view.clear()
+        self._cover_lbl.setText('No cover')
+        self._cover_url_shown = ''
 
         from modules.gui.workers import MetadataRetryWorker
         self._worker = MetadataRetryWorker(
@@ -276,23 +295,34 @@ class ScrapeDialog(QDialog):
         self._worker.finished.connect(self._on_scrape_done)
         self._worker.start()
 
+    def _start_scrape(self):
+        retry_items = self._collect_rows()
+        if retry_items:
+            self._run_worker(retry_items)
+
+    def _research_selected(self):
+        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        if not rows:
+            return
+        retry_items = self._collect_rows(rows)
+        if retry_items:
+            self._run_worker(retry_items)
+
     def _stop_scrape(self):
         if self._worker and self._worker.isRunning():
             self._worker.request_stop()
 
-    def _on_item_result(self, key: str, found: bool, display_name: str):
+    def _on_item_result(self, key: str, found: bool, _display_name: str):
         for row in range(self._table.rowCount()):
-            search_item = self._table.item(row, self._COL_SEARCH)
-            if not search_item:
-                continue
-            if search_item.data(Qt.ItemDataRole.UserRole) == key:
+            si = self._table.item(row, self._COL_SEARCH)
+            if si and si.data(Qt.ItemDataRole.UserRole) == key:
                 sti = self._table.item(row, self._COL_STATUS)
                 if sti:
                     if found:
-                        sti.setText(f'Found: {display_name}')
+                        sti.setText('✓')
                         sti.setForeground(Qt.GlobalColor.darkGreen)
                     else:
-                        sti.setText('Not found')
+                        sti.setText('✗')
                         sti.setForeground(Qt.GlobalColor.red)
                 break
 
@@ -300,6 +330,7 @@ class ScrapeDialog(QDialog):
                         auto_results: dict, multi_candidates: dict):
         self._progress.setVisible(False)
         self._btn_start.setEnabled(True)
+        self._btn_research.setEnabled(True)
         self._btn_stop.setEnabled(False)
 
         if self._worker is not None:
@@ -308,19 +339,15 @@ class ScrapeDialog(QDialog):
         self._worker = None
 
         self._pending_results.update(auto_results)
-        self._append_log(f'\n[DONE] {message}\n')
-
-        # Update status with full details for auto-accepted results
         for key, result in auto_results.items():
-            self._set_row_status_from_result(key, result)
+            self._set_row_result(key, result)
 
-        # Show pick dialog for each item with multiple candidates
         for key, candidates in multi_candidates.items():
             search_name = key
             for row in range(self._table.rowCount()):
-                search_item = self._table.item(row, self._COL_SEARCH)
-                if search_item and search_item.data(Qt.ItemDataRole.UserRole) == key:
-                    search_name = search_item.text() or key
+                si = self._table.item(row, self._COL_SEARCH)
+                if si and si.data(Qt.ItemDataRole.UserRole) == key:
+                    search_name = si.text() or key
                     break
 
             from modules.gui.failed_dialog import _PickResultDialog
@@ -332,39 +359,121 @@ class ScrapeDialog(QDialog):
                 result['igdb_found']    = True
                 result['manual']        = False
                 self._pending_results[key] = result
-                self._append_log(f'  Picked: {result.get("name", "")}\n')
-                self._set_row_status_from_result(key, result)
+                self._set_row_result(key, result)
             else:
-                self._append_log(f'  Skipped pick for: {search_name}\n')
+                for row in range(self._table.rowCount()):
+                    si = self._table.item(row, self._COL_SEARCH)
+                    if si and si.data(Qt.ItemDataRole.UserRole) == key:
+                        sti = self._table.item(row, self._COL_STATUS)
+                        if sti:
+                            sti.setText('–')
+                            sti.setForeground(Qt.GlobalColor.darkYellow)
+                        break
 
         if self._pending_results:
             self._btn_save.setText(f'Save Found ({len(self._pending_results)})')
             self._btn_save.setVisible(True)
 
-    def _set_row_status_from_result(self, key: str, result: dict):
-        """Update the Status cell for the given key with full result details."""
-        name     = result.get('name', '')
-        year     = result.get('year', '')
-        genre    = result.get('genre', '')
-        provider = result.get('provider_source', '')
-
-        parts = [name]
-        if year:
-            parts.append(f'({year})')
-        if genre:
-            parts.append(f'[{genre}]')
-        if provider:
-            parts.append(f'via {provider}')
-        status_text = ' '.join(parts) if parts else 'Found'
-
+    def _set_row_result(self, key: str, result: dict):
+        """Fill Found Name / Year / Genre / Rating / Provider columns for this key."""
         for row in range(self._table.rowCount()):
-            search_item = self._table.item(row, self._COL_SEARCH)
-            if search_item and search_item.data(Qt.ItemDataRole.UserRole) == key:
-                sti = self._table.item(row, self._COL_STATUS)
-                if sti:
-                    sti.setText(f'✓ {status_text}')
-                    sti.setForeground(Qt.GlobalColor.darkGreen)
-                break
+            si = self._table.item(row, self._COL_SEARCH)
+            if not si or si.data(Qt.ItemDataRole.UserRole) != key:
+                continue
+
+            def _s(col, field):
+                cell = self._table.item(row, col)
+                if cell:
+                    cell.setText(str(result.get(field) or ''))
+
+            _s(self._COL_FOUND,    'name')
+            _s(self._COL_YEAR,     'year')
+            _s(self._COL_GENRE,    'genre')
+            _s(self._COL_RATING,   'rating')
+            _s(self._COL_PROVIDER, 'provider_source')
+
+            sti = self._table.item(row, self._COL_STATUS)
+            if sti:
+                sti.setText('✓')
+                sti.setForeground(Qt.GlobalColor.darkGreen)
+            break
+
+    # ── Detail pane ───────────────────────────────────────────────────
+
+    def _on_row_selected(self, row: int):
+        if row < 0:
+            return
+        si = self._table.item(row, self._COL_SEARCH)
+        if not si:
+            return
+        key    = si.data(Qt.ItemDataRole.UserRole)
+        result = self._pending_results.get(key)
+        self._show_detail(result)
+
+    def _show_detail(self, result: dict | None):
+        if not result:
+            self._detail_view.setPlainText('')
+            self._cover_lbl.setText('No cover')
+            self._cover_url_shown = ''
+            return
+
+        lines = []
+        for label, field in [
+            ('Name',         'name'),
+            ('Year',         'year'),
+            ('Genre',        'genre'),
+            ('Rating',       'rating'),
+            ('Provider',     'provider_source'),
+            ('Slug',         'slug'),
+            ('Website',      'website_url'),
+            ('Provider URL', 'provider_url'),
+            ('Cover URL',    'cover_url'),
+        ]:
+            val = str(result.get(field) or '').strip()
+            if val:
+                lines.append(f'{label:<14}: {val}')
+
+        desc = str(result.get('description') or '').strip()
+        if desc:
+            lines.append('')
+            lines.append('Description:')
+            for chunk in textwrap.wrap(desc, width=90):
+                lines.append(f'  {chunk}')
+
+        self._detail_view.setPlainText('\n'.join(lines))
+
+        cover_url = str(result.get('cover_url') or '').strip()
+        if cover_url and cover_url != self._cover_url_shown:
+            self._cover_url_shown = cover_url
+            self._cover_lbl.setText('Loading…')
+            self._fetch_cover(cover_url)
+        elif not cover_url:
+            self._cover_lbl.setText('No cover')
+            self._cover_url_shown = ''
+
+    def _fetch_cover(self, url: str):
+        def _load():
+            try:
+                import requests
+                r = requests.get(url, timeout=8)
+                if r.ok:
+                    img = QImage()
+                    img.loadFromData(r.content)
+                    if not img.isNull() and url == self._cover_url_shown:
+                        QTimer.singleShot(0, lambda: self._set_cover(img))
+            except Exception:
+                pass
+        threading.Thread(target=_load, daemon=True).start()
+
+    def _set_cover(self, img: QImage):
+        px = QPixmap.fromImage(img)
+        scaled = px.scaled(
+            self._cover_lbl.width() - 4,
+            220,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._cover_lbl.setPixmap(scaled)
 
     # ── Save ──────────────────────────────────────────────────────────
 
@@ -375,7 +484,6 @@ class ScrapeDialog(QDialog):
             from modules.core.db import LibraryDB
             db = LibraryDB(Path(self._lib_config.metadata_file))
             for key, item in self._pending_results.items():
-                # Preserve full_path from DB if the new result doesn't have it
                 if not item.get('full_path'):
                     existing = db.get_item(key) or {}
                     if existing.get('full_path'):
@@ -402,13 +510,7 @@ class ScrapeDialog(QDialog):
         if not hasattr(self, '_log_stream_obj'):
             from modules.gui.log_widget import _SignalStream
             self._log_stream_obj = _SignalStream()
-            self._log_stream_obj.text_written.connect(self._append_log)
         return self._log_stream_obj
-
-    def _append_log(self, text: str):
-        self._log.moveCursor(QTextCursor.MoveOperation.End)
-        self._log.insertPlainText(text)
-        self._log.ensureCursorVisible()
 
     def done(self, result: int):
         if self._worker is not None and self._worker.isRunning():
