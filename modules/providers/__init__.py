@@ -9,6 +9,9 @@ _REGISTRY = {
     'giantbomb':        ('modules.providers.giantbomb',        'GiantBombProvider'),
     'itchio':           ('modules.providers.itchio',           'ItchIOProvider'),
     'steam':            ('modules.providers.steam',            'SteamProvider'),
+    'mobygames':        ('modules.providers.mobygames',        'MobyGamesProvider'),
+    'thegamesdb':       ('modules.providers.thegamesdb',       'TheGamesDBProvider'),
+    'launchbox':        ('modules.providers.launchbox',        'LaunchBoxProvider'),
     # Movies
     'tmdb':             ('modules.providers.tmdb',             'TMDBProvider'),
     'omdb':             ('modules.providers.omdb',             'OMDBProvider'),
