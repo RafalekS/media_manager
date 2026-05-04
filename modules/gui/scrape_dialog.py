@@ -47,6 +47,7 @@ class ScrapeDialog(QDialog):
         self._pending_results  = {}   # key -> full result dict
         self._provider_checks  = {}   # provider_name -> QCheckBox
         self._cover_url_shown  = ''   # tracks which cover is currently in the pane
+        self._current_url      = ''   # URL for "Open in Browser"
         self._nam              = QNetworkAccessManager(self)
 
         self.setWindowTitle(f'Scrape — {plugin.name}')
@@ -117,6 +118,11 @@ class ScrapeDialog(QDialog):
         det_lbl.setProperty('role', 'muted')
         det_hdr.addWidget(det_lbl)
         det_hdr.addStretch()
+        self._btn_open = QPushButton('Open in Browser')
+        self._btn_open.setObjectName('btn_secondary')
+        self._btn_open.setEnabled(False)
+        self._btn_open.clicked.connect(self._open_in_browser)
+        det_hdr.addWidget(self._btn_open)
         detail_lay.addLayout(det_hdr)
 
         det_split = QSplitter(Qt.Orientation.Horizontal)
@@ -441,7 +447,12 @@ class ScrapeDialog(QDialog):
             self._detail_view.setPlainText('')
             self._cover_lbl.setText('No cover')
             self._cover_url_shown = ''
+            self._current_url = ''
+            self._btn_open.setEnabled(False)
             return
+
+        self._current_url = str(result.get('provider_url') or result.get('website_url') or '').strip()
+        self._btn_open.setEnabled(bool(self._current_url))
 
         lines = []
         for label, field in [
@@ -504,6 +515,11 @@ class ScrapeDialog(QDialog):
             Qt.TransformationMode.SmoothTransformation,
         )
         self._cover_lbl.setPixmap(scaled)
+
+    def _open_in_browser(self):
+        if self._current_url:
+            import webbrowser
+            webbrowser.open(self._current_url)
 
     # ── Save ──────────────────────────────────────────────────────────
 
