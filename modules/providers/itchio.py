@@ -98,28 +98,28 @@ class ItchIOProvider(MetadataProvider):
 
             print(f'[itch.io] web search: {len(urls)} total game URLs')
 
-            best_url   = urls[0]
-            best_slug  = urls[0].split('/')[-1].lower()
-            best_score = -1.0
-
+            # Score all by slug similarity, keep top 5 above threshold
+            scored = []
             for url in urls:
-                slug = url.split('/')[-1].lower()
-                if slug == q_slug:
-                    best_url, best_slug, best_score = url, slug, 1.0
-                    break
-                score = difflib.SequenceMatcher(None, q_slug, slug).ratio()
-                if score > best_score:
-                    best_score = score
-                    best_url, best_slug = url, slug
+                slug  = url.split('/')[-1].lower()
+                score = 1.0 if slug == q_slug else difflib.SequenceMatcher(None, q_slug, slug).ratio()
+                scored.append((score, url))
+            scored.sort(key=lambda x: -x[0])
 
-            print(f'[itch.io] best match: slug="{best_slug}" url={best_url} score={best_score:.2f}')
-
-            if best_score < 0.6:
-                print('[itch.io] score below threshold — no match')
+            top = [(s, u) for s, u in scored if s >= 0.4][:5]
+            if not top:
+                print('[itch.io] all scores below threshold — no match')
                 return []
 
-            game = self._fetch_from_page(best_url)
-            return [game] if game else []
+            results = []
+            for score, url in top:
+                slug = url.split('/')[-1].lower()
+                print(f'[itch.io] fetching: slug="{slug}" score={score:.2f}')
+                game = self._fetch_from_page(url)
+                if game:
+                    results.append(game)
+
+            return results
         except Exception as e:
             print(f'[itch.io] web search error: {e}')
             return []

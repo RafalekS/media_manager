@@ -97,7 +97,7 @@ class TheGamesDBProvider(MetadataProvider):
                     cover_url = f'{self._CDN_LARGE}/{fn}'
 
         slug     = raw.get('slug', '')
-        prov_url = f'https://thegamesdb.net/game/{slug}/' if slug else ''
+        prov_url = f'https://thegamesdb.net/game.php?id={game_id}' if game_id else ''
 
         rating = ''
         rat    = raw.get('rating', '')

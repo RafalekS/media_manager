@@ -45,23 +45,26 @@ class LaunchBoxProvider(MetadataProvider):
         soup = BeautifulSoup(r.text, 'html.parser')
         results = []
 
-        # Result rows: <tr> inside table with class 'table' or similar
-        for row in soup.select('table tr'):
-            link = row.find('a', href=re.compile(r'/games/details/'))
+        # Site uses Bootstrap card grid — each card is div.games-grid-card
+        for card in soup.select('div.games-grid-card'):
+            link = card.find('a', href=re.compile(r'/games/details/'))
             if not link:
                 continue
-            href  = link.get('href', '')
-            name  = link.get_text(strip=True)
-            # Extract ID from URL: /games/details/12345-game-title
+            href = link.get('href', '')
             m = re.search(r'/games/details/(\d+)', href)
             if not m:
                 continue
+            name_el  = card.select_one('.cardTitle h3')
+            name     = name_el.get_text(strip=True) if name_el else ''
+            cover_el = card.select_one('.cardImgPart img')
+            cover    = cover_el.get('src', '') if cover_el else ''
             results.append({
-                'id':   m.group(1),
-                'name': name,
-                'url':  _BASE + href if href.startswith('/') else href,
+                'id':        m.group(1),
+                'name':      name,
+                'url':       _BASE + href if href.startswith('/') else href,
+                'cover_url': cover,
             })
-            if len(results) >= 5:
+            if len(results) >= 10:
                 break
 
         return results
@@ -89,48 +92,47 @@ class LaunchBoxProvider(MetadataProvider):
         if h1:
             data['title'] = h1.get_text(strip=True)
 
-        # Detail table rows: <th>Label</th><td>Value</td>
-        for row in soup.select('table.table-bordered tr, table tr'):
-            th = row.find('th')
-            td = row.find('td')
-            if not th or not td:
+        # Detail fields — site uses dt/dd pairs
+        _skip = {'no information available', 'not rated', ''}
+        for dt in soup.find_all('dt'):
+            dd = dt.find_next_sibling('dd')
+            if not dd:
                 continue
-            label = th.get_text(strip=True).lower()
-            value = td.get_text(separator=' ', strip=True)
-
-            if 'release' in label or 'year' in label or 'date' in label:
+            label = dt.get_text(strip=True).lower()
+            value = dd.get_text(strip=True)
+            if value.lower() in _skip:
+                continue
+            if 'release date' in label or 'year' in label:
                 m = re.search(r'\b(19\d{2}|20\d{2})\b', value)
                 if m:
                     data['year'] = m.group(1)
             elif 'genre' in label:
                 data['genre'] = value
-            elif 'rating' in label and 'community' in label:
-                m = re.search(r'[\d.]+', value)
-                if m:
-                    data['rating'] = m.group()
-            elif 'platform' in label:
-                data['platform'] = value
             elif 'developer' in label:
                 data['developer'] = value
             elif 'publisher' in label:
                 data['publisher'] = value
             elif 'max player' in label or 'players' in label:
                 data['max_players'] = value
+            elif 'platform' in label and 'platform' not in data:
+                data['platform'] = value
 
-        # Description / overview
-        for sel in ('.game-overview', '#overview', '.overview', '[itemprop="description"]'):
-            el = soup.select_one(sel)
-            if el:
-                data['description'] = el.get_text(separator='\n', strip=True)
-                break
+        # Description — first substantial span near the overview heading
+        ov_h2 = soup.find(id='overview')
+        if ov_h2:
+            for el in ov_h2.parent.next_siblings:
+                if not hasattr(el, 'get_text'):
+                    continue
+                text = el.get_text(strip=True)
+                if text and len(text) > 30:
+                    data['description'] = text
+                    break
 
         # Cover image
-        for sel in ('.game-image img', '.cover img', 'img[src*="images/box"]', 'img[src*="cover"]'):
-            img = soup.select_one(sel)
-            if img and img.get('src'):
-                src = img['src']
-                data['cover_url'] = src if src.startswith('http') else _BASE + src
-                break
+        img = soup.select_one('img[src*="launchbox-app.com"]')
+        if img and img.get('src'):
+            src = img['src']
+            data['cover_url'] = src if src.startswith('http') else _BASE + src
 
         return data
 
