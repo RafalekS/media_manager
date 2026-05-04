@@ -926,7 +926,18 @@ class LibraryBrowser(QWidget):
         if not rows:
             return
 
-        genres = sorted({item.get('genre', '') for item in self._data if item.get('genre')})
+        genres_from_data = {item.get('genre', '') for item in self._data if item.get('genre')}
+        genres_from_file: set = set()
+        try:
+            import json as _json
+            gf = self._lib_config.genre_file
+            if Path(gf).exists():
+                with open(gf, 'r', encoding='utf-8') as _f:
+                    _raw = _json.load(_f)
+                genres_from_file = set(_raw.values() if isinstance(_raw, dict) else _raw)
+        except Exception:
+            pass
+        genres = sorted(genres_from_data | genres_from_file)
 
         dlg = QDialog(self)
         dlg.setWindowTitle('Assign Genre')
