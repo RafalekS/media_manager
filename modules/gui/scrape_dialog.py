@@ -100,7 +100,9 @@ class ScrapeDialog(QDialog):
             QAbstractItemView.EditTrigger.DoubleClicked |
             QAbstractItemView.EditTrigger.EditKeyPressed
         )
-        self._table.currentRowChanged.connect(self._on_row_selected)
+        self._table.currentCellChanged.connect(
+            lambda row, _col, _prow, _pcol: self._on_row_selected(row)
+        )
         splitter.addWidget(self._table)
 
         # ── Detail pane ───────────────────────────────────────────────
