@@ -94,7 +94,7 @@ class ScrapeDialog(QDialog):
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setAlternatingRowColors(True)
-        self._table.setSortingEnabled(False)
+        self._table.setSortingEnabled(True)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked |
@@ -303,9 +303,20 @@ class ScrapeDialog(QDialog):
         self._worker.start()
 
     def _start_scrape(self):
-        retry_items = self._collect_rows()
-        if retry_items:
-            self._run_worker(retry_items)
+        selected = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        if selected:
+            rows = [r for r in selected if not self._row_has_result(r)]
+        else:
+            rows = [r for r in range(self._table.rowCount()) if not self._row_has_result(r)]
+        items = self._collect_rows(rows)
+        if items:
+            self._run_worker(items)
+
+    def _row_has_result(self, row: int) -> bool:
+        si = self._table.item(row, self._COL_SEARCH)
+        if not si:
+            return False
+        return si.data(Qt.ItemDataRole.UserRole) in self._pending_results
 
     def _research_selected(self):
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
@@ -349,6 +360,8 @@ class ScrapeDialog(QDialog):
         for key, result in auto_results.items():
             self._set_row_result(key, result)
 
+        from modules.gui.failed_dialog import _PickResultDialog
+        skip_all = False
         for key, candidates in multi_candidates.items():
             search_name = key
             for row in range(self._table.rowCount()):
@@ -357,17 +370,22 @@ class ScrapeDialog(QDialog):
                     search_name = si.text() or key
                     break
 
-            from modules.gui.failed_dialog import _PickResultDialog
-            dlg = _PickResultDialog(search_name, candidates, self)
-            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_result:
-                result = dlg.selected_result
-                result['original_name'] = candidates[0].get('original_name', key)
-                result['found']         = True
-                result['igdb_found']    = True
-                result['manual']        = False
-                self._pending_results[key] = result
-                self._set_row_result(key, result)
-            else:
+            picked = False
+            if not skip_all:
+                dlg = _PickResultDialog(search_name, candidates, self)
+                if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_result:
+                    result = dlg.selected_result
+                    result['original_name'] = candidates[0].get('original_name', key)
+                    result['found']         = True
+                    result['igdb_found']    = True
+                    result['manual']        = False
+                    self._pending_results[key] = result
+                    self._set_row_result(key, result)
+                    picked = True
+                elif dlg.skip_all:
+                    skip_all = True
+
+            if not picked:
                 for row in range(self._table.rowCount()):
                     si = self._table.item(row, self._COL_SEARCH)
                     if si and si.data(Qt.ItemDataRole.UserRole) == key:
@@ -463,14 +481,21 @@ class ScrapeDialog(QDialog):
             try:
                 import requests
                 r = requests.get(url, timeout=8)
-                if r.ok:
-                    img = QImage()
-                    img.loadFromData(r.content)
-                    if not img.isNull() and url == self._cover_url_shown:
-                        QTimer.singleShot(0, lambda: self._set_cover(img))
+                if r.ok and url == self._cover_url_shown:
+                    data = r.content
+                    QTimer.singleShot(0, lambda: self._apply_cover(data, url))
             except Exception:
                 pass
         threading.Thread(target=_load, daemon=True).start()
+
+    def _apply_cover(self, data: bytes, url: str):
+        if url != self._cover_url_shown:
+            return
+        img = QImage()
+        if img.loadFromData(data) and not img.isNull():
+            self._set_cover(img)
+        else:
+            self._cover_lbl.setText('No cover')
 
     def _set_cover(self, img: QImage):
         px = QPixmap.fromImage(img)

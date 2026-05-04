@@ -28,6 +28,7 @@ class _PickResultDialog(QDialog):
     def __init__(self, query: str, candidates: list, parent=None):
         super().__init__(parent)
         self.selected_result = None
+        self.skip_all        = False
         self.setWindowTitle(f'Pick match — {query}')
         self.resize(560, 340)
         self.setWindowFlags(
@@ -63,6 +64,10 @@ class _PickResultDialog(QDialog):
         btn_skip.setObjectName('btn_secondary')
         btn_skip.clicked.connect(self.reject)
         btn_row.addWidget(btn_skip)
+        btn_skip_all = QPushButton('Skip All Remaining')
+        btn_skip_all.setObjectName('btn_secondary')
+        btn_skip_all.clicked.connect(self._do_skip_all)
+        btn_row.addWidget(btn_skip_all)
         lay.addLayout(btn_row)
 
     def _pick(self):
@@ -71,6 +76,10 @@ class _PickResultDialog(QDialog):
             return
         self.selected_result = item.data(Qt.ItemDataRole.UserRole)
         self.accept()
+
+    def _do_skip_all(self):
+        self.skip_all = True
+        self.reject()
 
 
 class FailedItemsDialog(QDialog):
