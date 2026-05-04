@@ -54,9 +54,6 @@ _LIBRARY_PROVIDERS = {
         ('steam',      'Steam',       False, [
             ('steam_api_key',     'API Key',    True),
         ]),
-        ('mobygames',  'MobyGames',   False, [
-            ('mobygames_api_key', 'API Key',    True),
-        ]),
         ('thegamesdb', 'TheGamesDB',  False, [
             ('thegamesdb_api_key', 'API Key',   True),
         ]),
