@@ -183,11 +183,15 @@ class ScrapeDialog(QDialog):
         layout.addLayout(bar)
 
     def _build_provider_row(self) -> QWidget | None:
-        primary_name     = getattr(self._lib_config, 'primary_provider', '') or ''
-        supplement_names = list(getattr(self._lib_config, 'supplement_providers', []) or [])
-        all_providers    = [(primary_name, True)] + [(n, False) for n in supplement_names if n]
-        if not any(n for n, _ in all_providers):
+        from modules.gui.settings_page import _LIBRARY_PROVIDERS
+        media_type       = getattr(self._lib_config, 'media_type', '') or ''
+        all_defs         = _LIBRARY_PROVIDERS.get(media_type, [])
+        if not all_defs:
             return None
+
+        primary_name     = getattr(self._lib_config, 'primary_provider', '') or ''
+        supplement_names = set(getattr(self._lib_config, 'supplement_providers', []) or [])
+        configured       = {primary_name} | supplement_names
 
         container = QWidget()
         row = QHBoxLayout(container)
@@ -195,13 +199,16 @@ class ScrapeDialog(QDialog):
         lbl = QLabel('Sources:')
         lbl.setProperty('role', 'muted')
         row.addWidget(lbl)
-        for name, is_primary in all_providers:
-            if not name:
+        for provider_id, display_name, _is_primary, _fields in all_defs:
+            if not provider_id:
                 continue
-            chk = QCheckBox(f'{name} (primary)' if is_primary else name)
-            chk.setChecked(True)
+            is_primary = (provider_id == primary_name)
+            label = f'{display_name} ★' if is_primary else display_name
+            chk = QCheckBox(label)
+            chk.setToolTip('Primary provider' if is_primary else provider_id)
+            chk.setChecked(provider_id in configured)
             row.addWidget(chk)
-            self._provider_checks[name] = chk
+            self._provider_checks[provider_id] = chk
         row.addStretch()
         return container
 
@@ -248,9 +255,7 @@ class ScrapeDialog(QDialog):
         if not self._provider_checks:
             return None
         active = [n for n, chk in self._provider_checks.items() if chk.isChecked()]
-        if len(active) == len(self._provider_checks) or not active:
-            return None
-        return active
+        return active if active else None
 
     def _collect_rows(self, rows=None) -> list:
         """Build retry_items and reset status cells. rows=None means all rows."""
