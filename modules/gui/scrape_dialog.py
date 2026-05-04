@@ -480,7 +480,8 @@ class ScrapeDialog(QDialog):
         def _load():
             try:
                 import requests
-                r = requests.get(url, timeout=8)
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                r = requests.get(url, timeout=8, headers=headers)
                 if r.ok and url == self._cover_url_shown:
                     data = r.content
                     QTimer.singleShot(0, lambda: self._apply_cover(data, url))

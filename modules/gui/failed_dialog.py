@@ -8,10 +8,12 @@ Shows a table of items that didn't match and allows:
 """
 
 import json
+import threading
+import textwrap
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QEvent, QTimer
-from PyQt6.QtGui import QTextCursor, QFont, QAction
+from PyQt6.QtGui import QTextCursor, QFont, QAction, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
@@ -23,41 +25,79 @@ from modules.gui.table_utils import CITableWidgetItem
 
 
 class _PickResultDialog(QDialog):
-    """Show pre-extracted provider results and let the user pick one."""
+    """Interactive match picker: candidate list left, live cover+details right."""
 
     def __init__(self, query: str, candidates: list, parent=None):
         super().__init__(parent)
-        self.selected_result = None
-        self.skip_all        = False
+        self.selected_result  = None
+        self.skip_all         = False
+        self._candidates      = candidates
+        self._cover_url_shown = ''
+
         self.setWindowTitle(f'Pick match — {query}')
-        self.resize(560, 340)
+        self.resize(960, 540)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
         lay = QVBoxLayout(self)
+        lay.setSpacing(8)
 
-        lay.addWidget(QLabel(f'Search query: <b>{query}</b>'))
-        lay.addWidget(QLabel('Double-click or select and click Pick:'))
+        hdr = QLabel(f'Matches for: <b>{query}</b>  —  double-click or select and click Pick')
+        hdr.setProperty('role', 'muted')
+        lay.addWidget(hdr)
 
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # ── Left: candidate list ───────────────────────────────────────
+        left_w   = QWidget()
+        left_lay = QVBoxLayout(left_w)
+        left_lay.setContentsMargins(0, 0, 0, 0)
         self._list = QListWidget()
         for r in candidates:
             name   = r.get('name', '?')
-            year   = r.get('year', '') or ''
-            source = r.get('provider_source', '')
+            year   = str(r.get('year', '') or '')
+            source = r.get('provider_source', '') or ''
             parts  = [name]
             if year:
                 parts.append(f'({year})')
             if source:
                 parts.append(f'[{source}]')
-            item = QListWidgetItem('  '.join(parts))
-            item.setData(Qt.ItemDataRole.UserRole, r)
-            self._list.addItem(item)
+            li = QListWidgetItem('  '.join(parts))
+            li.setData(Qt.ItemDataRole.UserRole, r)
+            self._list.addItem(li)
+        self._list.currentRowChanged.connect(self._on_candidate_changed)
         self._list.doubleClicked.connect(self._pick)
-        lay.addWidget(self._list, 1)
+        left_lay.addWidget(self._list, 1)
+        splitter.addWidget(left_w)
 
+        # ── Right: detail pane ─────────────────────────────────────────
+        right_w   = QWidget()
+        right_lay = QVBoxLayout(right_w)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(4)
+
+        self._cover_lbl = QLabel('Select a match to preview')
+        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cover_lbl.setFixedHeight(220)
+        self._cover_lbl.setStyleSheet(
+            'background:#1a1a1a; border:1px solid #333; border-radius:4px; color:#888;'
+        )
+        right_lay.addWidget(self._cover_lbl)
+
+        self._detail_view = QPlainTextEdit()
+        self._detail_view.setReadOnly(True)
+        self._detail_view.setFont(QFont('Consolas', 9))
+        right_lay.addWidget(self._detail_view, 1)
+
+        splitter.addWidget(right_w)
+        splitter.setSizes([340, 600])
+        lay.addWidget(splitter, 1)
+
+        # ── Buttons ────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        btn_pick = QPushButton('Pick')
+        btn_pick = QPushButton('Pick Selected')
+        btn_pick.setDefault(True)
         btn_pick.clicked.connect(self._pick)
         btn_row.addWidget(btn_pick)
         btn_skip = QPushButton('Skip')
@@ -69,6 +109,78 @@ class _PickResultDialog(QDialog):
         btn_skip_all.clicked.connect(self._do_skip_all)
         btn_row.addWidget(btn_skip_all)
         lay.addLayout(btn_row)
+
+        if self._list.count():
+            self._list.setCurrentRow(0)
+
+    # ── Candidate preview ──────────────────────────────────────────────
+
+    def _on_candidate_changed(self, row: int):
+        if 0 <= row < len(self._candidates):
+            self._show_detail(self._candidates[row])
+
+    def _show_detail(self, result: dict):
+        lines = []
+        for field, label in [
+            ('name',            'Name'),
+            ('year',            'Year'),
+            ('genre',           'Genre'),
+            ('developer',       'Developer'),
+            ('publisher',       'Publisher'),
+            ('platform',        'Platform'),
+            ('rating',          'Rating'),
+            ('provider_source', 'Source'),
+        ]:
+            val = result.get(field)
+            if val:
+                lines.append(f'{label:<14}{val}')
+        desc = str(result.get('description') or '').strip()
+        if desc:
+            lines.append('')
+            lines.append('Description:')
+            for chunk in textwrap.wrap(desc, width=82):
+                lines.append(f'  {chunk}')
+        self._detail_view.setPlainText('\n'.join(lines))
+
+        cover_url = str(result.get('cover_url') or '').strip()
+        if cover_url and cover_url != self._cover_url_shown:
+            self._cover_url_shown = cover_url
+            self._cover_lbl.setText('Loading…')
+            self._fetch_cover(cover_url)
+        elif not cover_url:
+            self._cover_url_shown = ''
+            self._cover_lbl.setText('No cover')
+
+    def _fetch_cover(self, url: str):
+        def _load():
+            try:
+                import requests
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                r = requests.get(url, timeout=8, headers=headers)
+                if r.ok and url == self._cover_url_shown:
+                    data = r.content
+                    QTimer.singleShot(0, lambda: self._apply_cover(data, url))
+            except Exception:
+                pass
+        threading.Thread(target=_load, daemon=True).start()
+
+    def _apply_cover(self, data: bytes, url: str):
+        if url != self._cover_url_shown:
+            return
+        img = QImage()
+        if img.loadFromData(data) and not img.isNull():
+            px = QPixmap.fromImage(img)
+            w  = max(self._cover_lbl.width() - 4, 200)
+            scaled = px.scaled(
+                w, 216,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._cover_lbl.setPixmap(scaled)
+        else:
+            self._cover_lbl.setText('No cover')
+
+    # ── Actions ────────────────────────────────────────────────────────
 
     def _pick(self):
         item = self._list.currentItem()
