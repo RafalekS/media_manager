@@ -123,6 +123,22 @@ class _ItemEditDialog(QDialog):
 
         self._setup_ui()
 
+    def _load_genre_options(self) -> list:
+        genre_file = getattr(self._lib_config, 'data', {}).get('genre_file', '')
+        if not genre_file:
+            return []
+        try:
+            from pathlib import Path
+            import json
+            p = Path(genre_file)
+            if not p.is_absolute():
+                p = self._lib_config.root / p
+            with open(p, encoding='utf-8') as f:
+                data = json.load(f)
+            return sorted(set(data.values()))
+        except Exception:
+            return []
+
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 12)
@@ -151,6 +167,8 @@ class _ItemEditDialog(QDialog):
         self._fields['original_name'] = w_orig
         shown.update({'original_name', 'name'})
 
+        genre_options = self._load_genre_options()
+
         for key, label, _ in self._plugin.columns:
             if key in shown:
                 continue
@@ -160,6 +178,16 @@ class _ItemEditDialog(QDialog):
                 w = QLineEdit(value)
                 w.setReadOnly(True)
                 w.setProperty('role', 'muted')
+            elif key == 'genre' and genre_options:
+                w = QComboBox()
+                w.setEditable(True)
+                w.addItem('')
+                w.addItems(genre_options)
+                idx = w.findText(value)
+                if idx >= 0:
+                    w.setCurrentIndex(idx)
+                else:
+                    w.setCurrentText(value)
             elif key == 'description':
                 w = QPlainTextEdit(value)
                 w.setFixedHeight(90)
@@ -208,6 +236,8 @@ class _ItemEditDialog(QDialog):
                 continue
             if isinstance(widget, QPlainTextEdit):
                 updates[key] = widget.toPlainText()
+            elif isinstance(widget, QComboBox):
+                updates[key] = widget.currentText()
             else:
                 updates[key] = widget.text()
 
