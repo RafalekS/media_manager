@@ -766,16 +766,23 @@ class LibraryBrowser(QWidget):
         if ans != QMessageBox.StandardButton.Yes:
             return
 
+        try:
+            from modules.core.db import LibraryDB
+            db = LibraryDB(Path(self._lib_config.metadata_file))
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Could not open metadata DB:\n{e}')
+            return
+
         for row in rows:
             key_item = self._model.item(row, 0)
             if key_item:
                 key = key_item.data(_KEY_ROLE)
                 if key:
-                    self._deleted_keys.add(key)
+                    db.delete_item(key)
+                    self._deleted_keys.discard(key)
             self._model.removeRow(row)
 
         self._lbl_status.setText(f'{self._model.rowCount()} items')
-        self._btn_save.setEnabled(True)
         self._btn_delete.setEnabled(False)
 
     # ──────────────────────────────────────────────────────────────────
