@@ -24,7 +24,7 @@ class ScrapeDialog(QDialog):
     Layout:
       - Top: results table with columns for every key metadata field
       - Bottom: detail pane — cover thumbnail + full field dump for selected row
-    Auto-starts scrape on open; Re-search Selected re-runs chosen rows.
+    Click Scrape to start; Re-search Selected re-runs chosen rows.
     Nothing is saved until the user clicks Save Found.
     """
 
@@ -56,7 +56,6 @@ class ScrapeDialog(QDialog):
         self.resize(1150, 680)
         self._setup_ui()
         self._populate_table()
-        QTimer.singleShot(100, self._start_scrape)
 
     # ── UI ────────────────────────────────────────────────────────────
 
