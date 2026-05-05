@@ -147,26 +147,47 @@ def _build_provider(name: str, api_cfg: dict):
         return None
 
 
+def _search_provider(provider, query: str) -> list:
+    """
+    Shared search+extract path used by every code path (auto-scrape, pick
+    dialog, match).  Calls search() then extract() on each raw result so all
+    paths go through identical logic.
+    """
+    prov_name = type(provider).__name__.replace('Provider', '')
+    extracted = []
+    try:
+        for raw in provider.search(query):
+            try:
+                item = provider.extract(raw)
+                if item and item.get('name'):
+                    item['provider_source'] = prov_name
+                    extracted.append(item)
+            except Exception as e:
+                print(f'  [{prov_name}] Extract error: {e}')
+    except Exception as e:
+        print(f'  [{prov_name}] Search error: {e}')
+    print(f'  [{prov_name}] {len(extracted)} result(s)')
+    return extracted
+
+
 def _query_with_supplements(primary, supplements, query: str) -> dict:
     """
     Query primary provider first. If it returns a result, merge supplement
     data to fill in missing fields.
     If primary returns nothing, try each supplement as a fallback primary.
-    Records provider_source as the class name that found the result.
     """
-    result = primary.search_and_extract(query)
-
     primary_name = type(primary).__name__.replace('Provider', '')
+    primary_results = _search_provider(primary, query)
 
-    if result and result.get('name'):
+    if primary_results:
+        result = primary_results[0]
         print(f'  [{primary_name}] Found: {result.get("name")}')
-        result['provider_source'] = primary_name
         for sup in supplements:
             sup_name = type(sup).__name__.replace('Provider', '')
             try:
-                sup_result = sup.search_and_extract(query)
-                if sup_result and sup_result.get('name'):
-                    _merge_supplement(result, sup_result)
+                sup_results = _search_provider(sup, query)
+                if sup_results:
+                    _merge_supplement(result, sup_results[0])
             except Exception as e:
                 print(f'  [{sup_name}] Error: {e}')
         return result
@@ -176,13 +197,10 @@ def _query_with_supplements(primary, supplements, query: str) -> dict:
     for sup in supplements:
         sup_name = type(sup).__name__.replace('Provider', '')
         try:
-            sup_result = sup.search_and_extract(query)
-            if sup_result and sup_result.get('name'):
-                sup_result['provider_source'] = sup_name
-                print(f'  [{sup_name}] Found: {sup_result.get("name")}')
-                return sup_result
-            else:
-                print(f'  [{sup_name}] No match')
+            sup_results = _search_provider(sup, query)
+            if sup_results:
+                print(f'  [{sup_name}] Found: {sup_results[0].get("name")}')
+                return sup_results[0]
         except Exception as e:
             print(f'  [{sup_name}] Error: {e}')
 
@@ -191,45 +209,18 @@ def _query_with_supplements(primary, supplements, query: str) -> dict:
 
 def _collect_candidates(primary, supplements, query: str) -> list:
     """
-    Collect ALL extracted results from primary (if any) or supplements.
-    Returns a list of extracted dicts so the caller can let the user pick.
-    Each result has 'provider_source' set.
+    Primary results if any, otherwise first supplement that returns results.
     """
+    results = _search_provider(primary, query)
+    if results:
+        return results
+
     primary_name = type(primary).__name__.replace('Provider', '')
-    candidates = []
-
-    try:
-        raw_results = primary.search(query)
-        for raw in raw_results:
-            extracted = primary.extract(raw)
-            if extracted and extracted.get('name'):
-                extracted['provider_source'] = primary_name
-                candidates.append(extracted)
-    except Exception as e:
-        print(f'  [{primary_name}] Error: {e}')
-
-    if candidates:
-        print(f'  [{primary_name}] {len(candidates)} result(s)')
-        return candidates
-
     print(f'  [{primary_name}] No match — trying supplements')
     for sup in supplements:
-        sup_name = type(sup).__name__.replace('Provider', '')
-        try:
-            raw_results = sup.search(query)
-            for raw in raw_results:
-                extracted = sup.extract(raw)
-                if extracted and extracted.get('name'):
-                    extracted['provider_source'] = sup_name
-                    candidates.append(extracted)
-            if candidates:
-                print(f'  [{sup_name}] {len(candidates)} result(s)')
-                return candidates
-            else:
-                print(f'  [{sup_name}] No match')
-        except Exception as e:
-            print(f'  [{sup_name}] Error: {e}')
-
+        results = _search_provider(sup, query)
+        if results:
+            return results
     return []
 
 
@@ -238,18 +229,7 @@ def _collect_all_candidates(primary, supplements, query: str) -> list:
     sees every match from every selected source, not just the first that hits."""
     candidates = []
     for prov in [primary] + [s for s in (supplements or []) if s is not None]:
-        prov_name = type(prov).__name__.replace('Provider', '')
-        try:
-            count = 0
-            for raw in prov.search(query):
-                extracted = prov.extract(raw)
-                if extracted and extracted.get('name'):
-                    extracted['provider_source'] = prov_name
-                    candidates.append(extracted)
-                    count += 1
-            print(f'  [{prov_name}] {count} result(s)')
-        except Exception as e:
-            print(f'  [{prov_name}] Error: {e}')
+        candidates.extend(_search_provider(prov, query))
     return candidates
 
 
