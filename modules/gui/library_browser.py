@@ -272,7 +272,15 @@ class _ItemEditDialog(QDialog):
                 item.update(updates)
                 if 'display_name' in updates:
                     item['name'] = updates['display_name']
-                db.set_item(self._meta_key, item)
+
+                new_original = str(updates.get('original_name') or '').strip()
+                if new_original and new_original != self._meta_key:
+                    # PK changed — must delete old row and insert under new key
+                    item['original_name'] = new_original
+                    db.delete_item(self._meta_key)
+                    db.set_item(new_original, item)
+                else:
+                    db.set_item(self._meta_key, item)
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Could not save metadata:\n{e}')
             return
