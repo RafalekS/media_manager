@@ -159,6 +159,25 @@ class ScrapeDialog(QDialog):
         self._progress.setVisible(False)
         layout.addWidget(self._progress)
 
+        # ── Log panel ─────────────────────────────────────────────────
+        log_hdr = QHBoxLayout()
+        self._btn_log = QPushButton('▶ Log')
+        self._btn_log.setObjectName('btn_secondary')
+        self._btn_log.setCheckable(True)
+        self._btn_log.setChecked(False)
+        self._btn_log.setFixedWidth(70)
+        self._btn_log.clicked.connect(self._toggle_log)
+        log_hdr.addWidget(self._btn_log)
+        log_hdr.addStretch()
+        layout.addLayout(log_hdr)
+
+        self._log_view = QPlainTextEdit()
+        self._log_view.setReadOnly(True)
+        self._log_view.setFont(QFont('Consolas', 8))
+        self._log_view.setFixedHeight(120)
+        self._log_view.setVisible(False)
+        layout.addWidget(self._log_view)
+
         # ── Save Selected ─────────────────────────────────────────────
         self._btn_save = QPushButton('Save Selected (0)')
         self._btn_save.setVisible(False)
@@ -615,6 +634,15 @@ class ScrapeDialog(QDialog):
 
     # ── Helpers ───────────────────────────────────────────────────────
 
+    def _toggle_log(self, checked: bool):
+        self._log_view.setVisible(checked)
+        self._btn_log.setText('▼ Log' if checked else '▶ Log')
+
+    def _append_log(self, text: str):
+        self._log_view.moveCursor(self._log_view.textCursor().MoveOperation.End)
+        self._log_view.insertPlainText(text)
+        self._log_view.moveCursor(self._log_view.textCursor().MoveOperation.End)
+
     def _drop_finished_workers(self):
         self._finished_workers.clear()
 
@@ -623,6 +651,9 @@ class ScrapeDialog(QDialog):
         if not hasattr(self, '_log_stream_obj'):
             from modules.gui.log_widget import _SignalStream
             self._log_stream_obj = _SignalStream()
+            self._log_stream_obj.text_written.connect(
+                self._append_log, Qt.ConnectionType.QueuedConnection
+            )
         return self._log_stream_obj
 
     def done(self, result: int):
