@@ -145,6 +145,12 @@ class _ItemEditDialog(QDialog):
 
         shown = set()
 
+        # Name (original_name) — always first, always editable
+        w_orig = QLineEdit(str(self._item_data.get('original_name', '') or ''))
+        form.addRow('Name:', w_orig)
+        self._fields['original_name'] = w_orig
+        shown.update({'original_name', 'name'})
+
         for key, label, _ in self._plugin.columns:
             if key in shown:
                 continue
