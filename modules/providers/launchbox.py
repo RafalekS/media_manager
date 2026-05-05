@@ -117,11 +117,11 @@ class LaunchBoxProvider(MetadataProvider):
             elif 'platform' in label and 'platform' not in data:
                 data['platform'] = value
 
-        # Description — first substantial span near the overview heading
+        # Description — look for a span/p sibling of the overview heading
         ov_h2 = soup.find(id='overview')
         if ov_h2:
             for el in ov_h2.parent.next_siblings:
-                if not hasattr(el, 'get_text'):
+                if not hasattr(el, 'name') or el.name not in ('span', 'p'):
                     continue
                 text = el.get_text(strip=True)
                 if text and len(text) > 30:
@@ -139,6 +139,13 @@ class LaunchBoxProvider(MetadataProvider):
     def extract(self, raw: dict) -> dict:
         if not raw:
             return self._default_item()
+
+        # Search stubs have 'name'+'url' but no 'title' — fetch the detail page
+        # so candidates in the pick dialog have full description/year/genre/cover.
+        if raw.get('url') and not raw.get('title'):
+            details = self.get_details(raw['url'])
+            if details:
+                raw = details
 
         genre_str = raw.get('genre', '')
         genres    = [g.strip() for g in re.split(r'[,;/]', genre_str) if g.strip()] if genre_str else []
