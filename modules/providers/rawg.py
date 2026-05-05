@@ -61,6 +61,12 @@ class RAWGProvider(MetadataProvider):
         if not raw:
             return self._default_item()
 
+        # Search results omit description_raw — fetch details if we have an id
+        if not raw.get('description_raw') and not raw.get('description') and raw.get('id'):
+            details = self.get_details(raw['id'])
+            if details:
+                raw = details
+
         genres = [g['name'] for g in raw.get('genres', []) if isinstance(g, dict)]
         genre  = genres[0] if genres else ''
 
