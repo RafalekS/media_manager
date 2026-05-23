@@ -11,6 +11,7 @@ _REGISTRY = {
     'steam':            ('modules.providers.steam',            'SteamProvider'),
     'thegamesdb':       ('modules.providers.thegamesdb',       'TheGamesDBProvider'),
     'launchbox':        ('modules.providers.launchbox',        'LaunchBoxProvider'),
+    'gog':              ('modules.providers.gog',              'GOGProvider'),
     # Movies
     'tmdb':             ('modules.providers.tmdb',             'TMDBProvider'),
     'omdb':             ('modules.providers.omdb',             'OMDBProvider'),

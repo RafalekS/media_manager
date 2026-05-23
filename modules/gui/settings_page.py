@@ -58,6 +58,7 @@ _LIBRARY_PROVIDERS = {
             ('thegamesdb_api_key', 'API Key',   True),
         ]),
         ('launchbox',  'LaunchBox',   False, []),
+        ('gog',        'GOG',         False, []),
     ],
     'movies': [
         ('tmdb',   'TMDB',   True,  [('tmdb_api_key',   'API Key',   True)]),
