@@ -453,6 +453,7 @@ class MainWindow(QMainWindow):
         grp_lay.addWidget(self._extract_delete)
 
         self._extract_ssh = QCheckBox('Extract on QNAP via SSH (recommended for large archives)')
+        self._extract_ssh.setChecked(True)
         grp_lay.addWidget(self._extract_ssh)
 
         self._extract_ssh_note = QLabel('SSH settings configured in Settings page.')
