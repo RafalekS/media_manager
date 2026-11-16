@@ -68,12 +68,13 @@ class GlobalConfig:
             return []
         stems = set()
         for f in folder.glob('*.json'):
-            if not f.stem.endswith('_genres'):
+            # Skip genre files and templates like games_genres.example.json
+            if '.' not in f.stem and not f.stem.endswith('_genres'):
                 stems.add(f.stem)
         for f in folder.glob('*.json.example'):
             # Path("games.json.example").stem == "games.json" → strip again
             stem = Path(f.stem).stem
-            if not stem.endswith('_genres'):
+            if '.' not in stem and not stem.endswith('_genres'):
                 stems.add(stem)
         return sorted(stems)
 

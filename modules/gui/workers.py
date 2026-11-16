@@ -100,7 +100,11 @@ class ExtractSSHWorker(_StoppableMixin, QThread):
                     return
 
                 delete_flag = '' if self._delete_after else '--no-delete'
-                remote_cmd  = f'bash "{script_path}" "{remote_src}" {delete_flag}'
+                remote_cmd  = (
+                    f'if [ ! -f "{script_path}" ]; then '
+                    f'echo "[SSH Extract] Script not found on remote host: {script_path}"; exit 2; fi; '
+                    f'bash "{script_path}" "{remote_src}" {delete_flag}'
+                )
                 ssh_target  = f'{ssh_user}@{ssh_host}'
 
                 ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes']
